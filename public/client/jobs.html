@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SkillLink - My Jobs</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="app-shell">
+<div id="nav-container"></div>
+<main class="page-content">
+  <div class="section-head">
+    <div class="section-title">Manage My Jobs</div>
+    <button class="btn btn-primary" onclick="document.getElementById('post-modal').classList.add('open')">+ Post New Job</button>
+  </div>
+
+  <div class="filter-bar mb-4">
+    <select id="status-filter" onchange="loadJobs()">
+      <option value="all">All Statuses</option>
+      <option value="open">Open</option>
+      <option value="assigned">In Progress</option>
+      <option value="completed">Needs Confirmation</option>
+      <option value="confirmed">Confirmed</option>
+      <option value="closed">Closed / Paid</option>
+      <option value="disputed">Disputed</option>
+    </select>
+  </div>
+
+  <div id="jobs-list"><div class="text-muted">Loading jobs...</div></div>
+</main>
+<div id="toast"></div>
+
+<!-- Rating modal -->
+<div class="modal-overlay" id="rate-modal">
+  <div class="modal-box">
+    <button class="modal-close" onclick="document.getElementById('rate-modal').classList.remove('open')">×</button>
+    <div class="modal-title">Rate the Artisan</div>
+    <div class="form-group" style="margin-top:20px">
+      <label>Your Rating</label>
+      <div id="rate-stars" style="display:flex;margin-top:12px"></div>
+    </div>
+    <div class="form-group">
+      <label>Comment (optional)</label>
+      <textarea id="rate-comment" rows="3" placeholder="Share your experience..."></textarea>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn btn-primary" onclick="submitRating()">Submit Rating</button>
+      <button class="btn btn-outline" onclick="document.getElementById('rate-modal').classList.remove('open')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="post-modal">
+  <div class="modal-box" style="position:relative">
+    <button class="modal-close" onclick="document.getElementById('post-modal').classList.remove('open')">×</button>
+    <div class="modal-title">Post a New Job</div>
+    <form id="post-job-form">
+      <div class="form-group">
+        <label>Job Title *</label>
+        <input type="text" id="j-title" placeholder="e.g. Fix leaking kitchen pipe" required>
+      </div>
+      <div class="form-group">
+        <label>Required Skill *</label>
+        <!-- FIX #2: Tiling and General Repairs included, matching backend exactly -->
+        <select id="j-skill" required>
+          <option value="">Select trade...</option>
+          <option>Plumbing</option>
+          <option>Electrical</option>
+          <option>Masonry</option>
+          <option>Carpentry</option>
+          <option>Painting</option>
+          <option>Welding</option>
+          <option>Tiling</option>
+          <option>General Repairs</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Description *</label>
+        <textarea id="j-desc" rows="3" placeholder="Provide details about the issue or task..." required></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Min Budget (KES)</label>
+          <input type="number" id="j-min" placeholder="e.g. 1000">
+        </div>
+        <div class="form-group">
+          <label>Max Budget (KES)</label>
+          <input type="number" id="j-max" placeholder="e.g. 5000">
+        </div>
+      </div>
+      <div class="form-group">
+        <label><input type="checkbox" id="j-emergency" style="width:auto;margin-right:6px"> 🚨 This is an emergency job (urgent)</label>
+      </div>
+      <div class="form-group">
+        <label>Location *</label>
+        <input type="text" id="j-loc" placeholder="e.g. Donholm, Nairobi" required style="margin-bottom:6px">
+        <button type="button" class="btn btn-outline btn-sm" onclick="detectJobLocation()">Use current location</button>
+        <input type="hidden" id="j-lat"><input type="hidden" id="j-lng">
+        <div id="j-loc-status" class="form-hint" style="margin-top:4px">Coordinates required for map matching.</div>
+      </div>
+      <div id="post-err" class="form-error" style="display:none"></div>
+      <button type="submit" class="btn btn-primary w-full" id="post-btn">Post Job</button>
+    </form>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script>
+  if (!Auth.check('client')) throw '';
+  renderNav('client');
+
+  // FIX #6: highlightJobFromUrl called reliably after every render
+  function highlightJobFromUrl() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const jobId = urlParams.get('job');
+    if (!jobId) return;
+    const jobCard = document.querySelector(`.job-card[data-job-id="${jobId}"]`);
+    if (jobCard) {
+      jobCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      jobCard.classList.add('job-card-highlight');
+      setTimeout(() => jobCard.classList.remove('job-card-highlight'), 2000);
+    }
+  }
+
+  async function loadJobs() {
+    const status = document.getElementById('status-filter').value;
+    const el = document.getElementById('jobs-list');
+    el.innerHTML = '<div class="text-muted">Loading...</div>';
+    
+    try {
+      const jobs = await api(`/jobs?status=${status}`);
+      if (!jobs.length) {
+        el.innerHTML = '<div class="empty-state"><p>No jobs found for this filter.</p></div>';
+        return;
+      }
+      
+      el.innerHTML = '<div class="job-list">' + jobs.map(j => {
+        let actions = '';
+        if (j.status === 'open') actions = `<button class="btn btn-danger btn-sm" onclick="deleteJob(${j.job_id})">Delete</button>`;
+        if (j.status === 'completed') actions = `
+          <button class="btn btn-success btn-sm" onclick="confirmJob(${j.job_id})">Confirm Work Done</button>
+          <button class="btn btn-danger btn-sm" onclick="raiseDispute(${j.job_id})">Raise Dispute</button>
+        `;
+        if (j.status === 'closed' && j.payment_status === 'paid') actions = `<button class="btn btn-primary btn-sm" onclick="openRateModal(${j.job_id})">Rate Artisan</button>`;
+        
+        let artisanInfo = j.assigned_artisan_id
+          ? `<div style="font-size:.8rem;color:var(--text-l);margin-top:6px">Assigned to: <strong>${j.artisan_name}</strong> (${j.artisan_phone})</div>`
+          : '';
+
+        return `
+          <div class="job-card" data-job-id="${j.job_id}">
+            <div class="job-card-top">
+              <div class="job-title">${j.job_title}</div>
+              ${statusPill(j.status)}
+            </div>
+            <div class="job-meta">
+              <span class="pill pill-blue">${j.required_skill}</span>
+              <span class="pill pill-gray">Location: ${j.job_location_name || 'Not set'}</span>
+              ${j.is_emergency ? '<span class="pill pill-red">🚨 URGENT</span>' : ''}
+              ${j.quoted_price ? `<span class="pill pill-green">Quoted: ${fmtMoney(j.quoted_price)}</span>` : ''}
+              ${j.payment_status === 'paid' ? '<span class="pill pill-green">Paid</span>' : ''}
+            </div>
+            <div class="job-desc">${j.job_description}</div>
+            ${artisanInfo}
+            <div class="job-actions">${actions}</div>
+            ${j.status === 'completed' ? '<div class="form-hint" style="margin-top:12px">Please confirm within 48 hours or the system will auto-confirm.</div>' : ''}
+          </div>
+        `;
+      }).join('') + '</div>';
+
+      // FIX #6: always call after render
+      highlightJobFromUrl();
+    } catch (e) {
+      el.innerHTML = `<div class="form-error">${e.message}</div>`;
+    }
+  }
+
+  async function detectJobLocation() {
+    try {
+      const pos = await getCurrentPosition();
+      const { latitude, longitude } = pos.coords;
+      document.getElementById('j-lat').value = latitude;
+      document.getElementById('j-lng').value = longitude;
+      const name = await reverseGeocode(latitude, longitude);
+      document.getElementById('j-loc').value = name;
+      document.getElementById('j-loc-status').textContent = 'Coordinates captured.';
+    } catch {
+      document.getElementById('j-loc-status').textContent = 'Could not detect GPS. Using default Nairobi coordinates.';
+      document.getElementById('j-lat').value = '-1.2921';
+      document.getElementById('j-lng').value = '36.8219';
+    }
+  }
+
+  document.getElementById('post-job-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('post-btn');
+    const errEl = document.getElementById('post-err');
+    errEl.style.display = 'none';
+    
+    if (!document.getElementById('j-lat').value) {
+      errEl.textContent = 'Please detect location first so artisans can find you on the map.';
+      errEl.style.display = 'block';
+      return;
+    }
+
+    btn.disabled = true; btn.textContent = 'Posting...';
+    try {
+      await api('/jobs', 'POST', {
+        job_title: document.getElementById('j-title').value,
+        required_skill: document.getElementById('j-skill').value,
+        job_description: document.getElementById('j-desc').value,
+        budget_min: document.getElementById('j-min').value || 0,
+        budget_max: document.getElementById('j-max').value || 0,
+        job_location_name: document.getElementById('j-loc').value,
+        job_location_lat: document.getElementById('j-lat').value,
+        job_location_lng: document.getElementById('j-lng').value,
+        is_emergency: document.getElementById('j-emergency').checked ? 1 : 0
+      });
+      toast('Job posted successfully!', 'success');
+      document.getElementById('post-modal').classList.remove('open');
+      e.target.reset();
+      loadJobs();
+    } catch (err) {
+      errEl.textContent = err.message; errEl.style.display = 'block';
+    } finally {
+      btn.disabled = false; btn.textContent = 'Post Job';
+    }
+  });
+
+  async function deleteJob(id) {
+    if (!confirm('Delete this job posting?')) return;
+    try {
+      await api(`/jobs/${id}`, 'DELETE');
+      toast('Job deleted', 'info');
+      loadJobs();
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  async function confirmJob(id) {
+    if (!confirm('Confirm the artisan has completed the work? They will be notified to quote their final price.')) return;
+    try {
+      await api(`/jobs/${id}/confirm`, 'PUT');
+      toast('Work confirmed! Awaiting artisan quote.', 'success');
+      loadJobs();
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  async function raiseDispute(id) {
+    if (!confirm('Raise a dispute for this job? The artisan will be notified.')) return;
+    try {
+      await api(`/jobs/${id}/dispute`, 'PUT');
+      toast('Dispute raised. The artisan will be notified.', 'info');
+      loadJobs();
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  let currentJobToRate = null;
+  function openRateModal(jobId) {
+    currentJobToRate = jobId;
+    document.getElementById('rate-modal').classList.add('open');
+    document.getElementById('rate-comment').value = '';
+    document.getElementById('rate-stars').innerHTML = '';
+    for (let i = 1; i <= 5; i++) {
+      const star = document.createElement('span');
+      star.innerHTML = '★';
+      star.style.cssText = 'cursor:pointer;font-size:1.8rem;color:#ddd;margin:0 4px;';
+      star.dataset.star = i;
+      star.addEventListener('click', () => updateStarDisplay(i));
+      star.addEventListener('mouseover', () => hoverStarDisplay(i));
+      star.addEventListener('mouseout', () => updateStarDisplay(document.querySelectorAll('#rate-stars span.active').length));
+      document.getElementById('rate-stars').appendChild(star);
+    }
+  }
+
+  function updateStarDisplay(count) {
+    document.querySelectorAll('#rate-stars span').forEach((s, i) => {
+      s.classList.toggle('active', i < count);
+      s.style.color = i < count ? '#ffc107' : '#ddd';
+    });
+  }
+
+  function hoverStarDisplay(count) {
+    document.querySelectorAll('#rate-stars span').forEach((s, i) => {
+      s.style.color = i < count ? '#ffc107' : '#ddd';
+    });
+  }
+
+  async function submitRating() {
+    const rating = document.querySelectorAll('#rate-stars span.active').length;
+    const comment = document.getElementById('rate-comment').value;
+    if (!rating) { toast('Please select a rating', 'error'); return; }
+    try {
+      await api(`/jobs/${currentJobToRate}/rate`, 'POST', { rating, comment });
+      toast('Thank you for rating!', 'success');
+      document.getElementById('rate-modal').classList.remove('open');
+      loadJobs();
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  loadJobs();
+  // FIX #4: refreshWithScroll kept for job list (scroll position matters), 30s
+  setInterval(() => {
+    if (!document.querySelector('.modal-overlay.open')) refreshWithScroll(loadJobs);
+  }, 30000);
+</script>
+</body>
+</html>

@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SkillLink – My Profile</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body class="app-shell">
+<div id="nav-container"></div>
+<main class="page-content">
+
+  <div class="section-head">
+    <div class="section-title">My Profile</div>
+  </div>
+
+  <div class="profile-grid">
+    <!-- ── Left sidebar ── -->
+    <div>
+      <div class="profile-sidebar">
+        <img id="profile-avatar" src="/img/default.png" class="avatar-lg" onerror="this.src='/img/default.png'" style="width:100px;height:100px;border-radius:50%;object-fit:cover;border:3px solid var(--border);">
+        <div class="profile-sidebar-name" id="sidebar-name">–</div>
+        <div id="profile-status" style="margin-top:2px"></div>
+        <div class="profile-sidebar-role" id="sidebar-trade" style="margin-top:4px"></div>
+
+        <div class="profile-sidebar-actions">
+          <label class="btn btn-outline btn-sm w-full" style="cursor:pointer;text-align:center">
+            📷 Change Photo
+            <input type="file" id="avatar-file" accept="image/*" style="display:none" onchange="uploadAvatar()">
+          </label>
+          <button class="btn btn-ghost btn-sm w-full" id="delete-photo-btn" onclick="deleteAvatar()">Remove Photo</button>
+        </div>
+      </div>
+
+      <!-- Ratings summary in sidebar -->
+      <div class="card mt-4">
+        <div class="profile-section-title">Ratings</div>
+        <div id="ratings-summary"><div class="text-muted text-sm">Loading…</div></div>
+      </div>
+    </div>
+
+    <!-- ── Right main content ── -->
+    <div>
+      <!-- Account details -->
+      <div class="card">
+        <div class="profile-section-title">Account Details</div>
+        <form id="profile-form">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Full name</label>
+              <input id="name" required>
+            </div>
+            <div class="form-group">
+              <label>Phone</label>
+              <input id="phone" disabled>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Email</label>
+              <input id="email" type="email">
+            </div>
+            <div class="form-group">
+              <label>Primary trade</label>
+              <input id="trade" required>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Short bio</label>
+            <textarea id="bio" rows="3"></textarea>
+          </div>
+          <div id="profile-error" class="form-error" style="display:none"></div>
+          <button class="btn btn-primary" type="submit">Save Changes</button>
+        </form>
+      </div>
+
+      <!-- Location -->
+      <div class="card mt-4">
+        <div class="profile-section-title">Location</div>
+        <div class="form-group">
+          <label>Click on the map to update your location</label>
+          <div id="location-map" style="height:220px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;"></div>
+          <input type="text" id="location_name" placeholder="Location name" readonly>
+          <input type="hidden" id="location_lat">
+          <input type="hidden" id="location_lng">
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="saveLocation()">Save Location</button>
+        <div id="loc-msg" class="form-hint mt-2" style="display:none"></div>
+      </div>
+
+      <!-- Change password -->
+      <div class="card mt-4">
+        <div class="profile-section-title">Change Password</div>
+        <form id="password-form">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Current password</label>
+              <input id="current-password" type="password" required>
+            </div>
+            <div class="form-group">
+              <label>New password (min 10 chars)</label>
+              <input id="new-password" type="password" required minlength="10">
+            </div>
+          </div>
+          <div id="password-error" class="form-error" style="display:none"></div>
+          <button class="btn btn-primary" type="submit">Update Password</button>
+        </form>
+      </div>
+
+      <!-- Ratings detail -->
+      <div class="card mt-4">
+        <div class="profile-section-title">Ratings from Clients</div>
+        <div id="ratings-detail"><div class="text-muted text-sm">Loading…</div></div>
+      </div>
+
+      <!-- Danger zone -->
+      <div class="card mt-4">
+        <div class="profile-section-title" style="color:var(--danger);border-bottom-color:#fca5a5">⚠ Danger Zone</div>
+        <div class="danger-zone">
+          <p>Permanently deletes your account, all job history, credentials, and profile data. This cannot be undone.</p>
+          <button class="btn btn-danger" onclick="deleteAccount()">Delete My Account Permanently</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</main>
+<div id="toast"></div>
+<script src="/js/api.js"></script>
+<script>
+  if (!Auth.check('artisan')) throw '';
+  renderNav('artisan');
+
+  let map, marker;
+
+  function initMap(lat, lng) {
+    map = L.map('location-map').setView(lat ? [lat, lng] : [-1.2864, 36.8172], lat ? 13 : 10);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(map);
+    if (lat && lng) marker = L.marker([lat, lng]).addTo(map);
+    map.on('click', async (e) => {
+      const { lat: newLat, lng: newLng } = e.latlng;
+      if (marker) map.removeLayer(marker);
+      marker = L.marker([newLat, newLng]).addTo(map);
+      document.getElementById('location_lat').value = newLat;
+      document.getElementById('location_lng').value = newLng;
+      try {
+        document.getElementById('location_name').value = await reverseGeocode(newLat, newLng);
+      } catch {
+        document.getElementById('location_name').value = `${newLat.toFixed(4)}, ${newLng.toFixed(4)}`;
+      }
+    });
+  }
+
+  async function loadProfile() {
+    try {
+      const me = await api('/users/me');
+      document.getElementById('name').value = me.name || '';
+      document.getElementById('phone').value = me.phone || '';
+      document.getElementById('email').value = me.email || '';
+      document.getElementById('trade').value = me.trade || '';
+      document.getElementById('bio').value = me.bio || '';
+      document.getElementById('location_name').value = me.location_name || '';
+      document.getElementById('location_lat').value = me.location_lat || '';
+      document.getElementById('location_lng').value = me.location_lng || '';
+      document.getElementById('profile-avatar').src = avatarSrc(me.profile_pic);
+      document.getElementById('sidebar-name').textContent = me.name || '';
+      document.getElementById('sidebar-trade').textContent = me.trade ? `Trade: ${me.trade}` : 'Artisan';
+      document.getElementById('profile-status').innerHTML = me.verification_status === 'verified'
+        ? '<span class="verified-chip">✓ Verified Artisan</span>'
+        : '<span class="pending-chip">Pending Verification</span>';
+      // Hide delete button if already default
+      document.getElementById('delete-photo-btn').style.display =
+        (!me.profile_pic || me.profile_pic === 'default.png') ? 'none' : '';
+      initMap(me.location_lat, me.location_lng);
+
+      const ratingsData = await api(`/users/${me.user_id}/ratings`);
+      const stats = ratingsData.stats;
+      // Sidebar summary
+      document.getElementById('ratings-summary').innerHTML = stats.total_ratings === 0
+        ? '<div class="text-muted text-sm">No ratings yet.</div>'
+        : ratingStarsHTML(stats.avg_rating, stats.total_ratings);
+      // Detail list
+      const detail = document.getElementById('ratings-detail');
+      if (stats.total_ratings === 0) {
+        detail.innerHTML = '<div class="text-muted text-sm">No ratings yet.</div>';
+      } else {
+        detail.innerHTML = ratingsData.ratings.map(r => `
+          <div style="border-bottom:1px solid var(--border);padding:12px 0;">
+            <div style="display:flex;justify-content:space-between;gap:10px;">
+              <strong>${r.rater_name}</strong>
+              <span>${renderStars(r.rating)}</span>
+            </div>
+            ${r.comment ? `<div style="font-size:0.88rem;color:var(--text-m);margin-top:5px">${r.comment}</div>` : ''}
+            <div style="font-size:0.75rem;color:var(--text-l);margin-top:4px">${fmtDate(r.created_at)}</div>
+          </div>`).join('');
+      }
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  document.getElementById('profile-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const err = document.getElementById('profile-error');
+    err.style.display = 'none';
+    const btn = e.target.querySelector('button');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      await api('/users/me', 'PUT', {
+        name: document.getElementById('name').value.trim(),
+        email: document.getElementById('email').value.trim(),
+        trade: document.getElementById('trade').value.trim(),
+        bio: document.getElementById('bio').value.trim(),
+        location_name: document.getElementById('location_name').value || null,
+        location_lat: document.getElementById('location_lat').value ? +document.getElementById('location_lat').value : null,
+        location_lng: document.getElementById('location_lng').value ? +document.getElementById('location_lng').value : null
+      });
+      toast('Profile updated', 'success');
+      window.location.reload();
+    } catch (e) { err.textContent = e.message; err.style.display = 'block'; }
+    finally { btn.disabled = false; btn.textContent = 'Save Changes'; }
+  });
+
+  async function saveLocation() {
+    const lat = document.getElementById('location_lat').value;
+    const lng = document.getElementById('location_lng').value;
+    const name = document.getElementById('location_name').value;
+    const msg = document.getElementById('loc-msg');
+    if (!lat || !lng) { toast('Click the map to set a location first.', 'error'); return; }
+    try {
+      await api('/users/me', 'PUT', { location_lat: +lat, location_lng: +lng, location_name: name || null });
+      msg.textContent = '✓ Location saved.'; msg.style.display = 'block';
+      toast('Location updated', 'success');
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  document.getElementById('password-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const err = document.getElementById('password-error');
+    err.style.display = 'none';
+    const btn = e.target.querySelector('button');
+    btn.disabled = true; btn.textContent = 'Updating…';
+    try {
+      const newPass = document.getElementById('new-password').value;
+      if (newPass.length < 10) throw new Error('New password must be at least 10 characters.');
+      await api('/users/password', 'PUT', {
+        current_password: document.getElementById('current-password').value,
+        new_password: newPass
+      });
+      toast('Password updated', 'success');
+      e.target.reset();
+    } catch (e) { err.textContent = e.message; err.style.display = 'block'; }
+    finally { btn.disabled = false; btn.textContent = 'Update Password'; }
+  });
+
+  async function uploadAvatar() {
+    const file = document.getElementById('avatar-file').files[0];
+    if (!file) return;
+    const form = new FormData();
+    form.append('avatar', file);
+    try {
+      const { profile_pic } = await apiForm('/users/avatar', form);
+      document.getElementById('profile-avatar').src = avatarSrc(profile_pic);
+      document.getElementById('delete-photo-btn').style.display = '';
+      toast('Profile photo updated', 'success');
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  async function deleteAvatar() {
+    if (!confirm('Remove your profile photo and restore the default?')) return;
+    try {
+      await api('/users/avatar', 'DELETE');
+      document.getElementById('profile-avatar').src = '/img/default.png';
+      document.getElementById('delete-photo-btn').style.display = 'none';
+      toast('Profile photo removed', 'info');
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  async function deleteAccount() {
+    if (!confirm('Delete your account permanently? All data will be lost.')) return;
+    const confirmPw = prompt('Enter your password to confirm:');
+    if (!confirmPw) return;
+    try {
+      await api('/users/me', 'DELETE');
+      Auth.clear();
+      toast('Account deleted. Goodbye!', 'info');
+      setTimeout(() => window.location.href = '/index.html', 1500);
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  loadProfile();
+</script>
+</body>
+</html>

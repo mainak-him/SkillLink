@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SkillLink - Find Artisans</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    #map-container { display:none; }
+    #list-container { display:block; }
+    #artisan-map { height: 500px; border-radius: var(--radius); }
+    .view-toggle { display:flex; gap:6px; }
+    .view-toggle button { padding:6px 14px; border-radius:6px; font-size:.82rem; font-weight:600; cursor:pointer; border:1.5px solid var(--border); background:var(--card); color:var(--text-m); }
+    .view-toggle button.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+    .distance-note { font-size:0.75rem; color:var(--text-l); margin-top:4px; }
+  </style>
+</head>
+<body class="app-shell">
+<div id="nav-container"></div>
+<main class="page-content">
+  <div class="section-head">
+    <div>
+      <div class="section-title">Verified Artisans Near You</div>
+      <div id="loc-display" style="font-size:.82rem;color:var(--text-l);margin-top:2px">Detecting location...</div>
+    </div>
+    <div class="view-toggle">
+      <button class="active" id="btn-list" onclick="showView('list')">List</button>
+      <button id="btn-map" onclick="showView('map')">Map</button>
+    </div>
+  </div>
+
+  <div class="filter-bar mb-4">
+    <!-- FIX #2: All trades match backend exactly, including Tiling and General Repairs -->
+    <select id="filter-skill" onchange="loadArtisans()">
+      <option value="all">All Trades</option>
+      <option>Plumbing</option>
+      <option>Electrical</option>
+      <option>Masonry</option>
+      <option>Carpentry</option>
+      <option>Painting</option>
+      <option>Welding</option>
+      <option>Tiling</option>
+      <option>General Repairs</option>
+    </select>
+    <button class="btn btn-outline btn-sm" onclick="loadArtisans()">Refresh</button>
+  </div>
+  <div class="distance-note">📍 Artisans are sorted by distance to your location – calculations may take a few seconds.</div>
+
+  <div id="list-container">
+    <div id="artisans-list"><div class="text-muted">📍 Finding nearby verified artisans using GPS distances...</div></div>
+  </div>
+
+  <div id="map-container" class="card">
+    <div id="artisan-map"></div>
+  </div>
+</main>
+<div id="toast"></div>
+
+<div class="modal-overlay" id="public-profile-modal">
+  <div class="modal-box" style="position:relative;">
+    <button class="modal-close" onclick="closePublicProfile()">×</button>
+    <div class="modal-title">Profile Details</div>
+    <div id="profile-content">
+      <div class="form-group"><label>Name</label><div id="pp-name"></div></div>
+      <div class="form-group"><label>Trade</label><div id="pp-trade"></div></div>
+      <div class="form-group"><label>Verification</label><div id="pp-status"></div></div>
+      <div class="form-group"><label>Bio</label><div id="pp-bio"></div></div>
+      <div class="form-group"><label>Contact</label><div id="pp-contact"></div></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/js/api.js"></script>
+<script>
+  if (!Auth.check('client')) throw '';
+  renderNav('client');
+
+  let myLat = -1.2921, myLng = 36.8219;
+  let leafMap = null;
+  let allArtisans = [];
+
+  (async () => {
+    try {
+      const pos = await getCurrentPosition();
+      myLat = pos.coords.latitude; myLng = pos.coords.longitude;
+      const name = await reverseGeocode(myLat, myLng);
+      document.getElementById('loc-display').textContent = name;
+    } catch {
+      document.getElementById('loc-display').textContent = 'Nairobi (default)';
+    }
+    loadArtisans();
+  })();
+
+  function showView(v) {
+    document.getElementById('list-container').style.display = v === 'list' ? 'block' : 'none';
+    document.getElementById('map-container').style.display  = v === 'map'  ? 'block' : 'none';
+    document.getElementById('btn-list').classList.toggle('active', v === 'list');
+    document.getElementById('btn-map').classList.toggle('active',  v === 'map');
+    if (v === 'map') initMap();
+  }
+
+  async function loadArtisans() {
+    const skill = document.getElementById('filter-skill').value;
+    const el = document.getElementById('artisans-list');
+    el.innerHTML = '<div class="text-muted">📍 Finding nearby verified artisans using GPS distances...</div>';
+    
+    try {
+      allArtisans = await api(`/artisans?skill=${skill}&lat=${myLat}&lng=${myLng}`);
+      if (!allArtisans.length) {
+        el.innerHTML = '<div class="empty-state"><p>No artisans found nearby for this trade.</p></div>';
+        return;
+      }
+      
+      el.innerHTML = '<div style="display:grid;gap:16px">' + allArtisans.map(a => `
+        <div class="artisan-card">
+          <img src="${avatarSrc(a.profile_pic)}" class="artisan-avatar" onclick="openArtisanProfile(${a.user_id})">
+          <div class="artisan-info">
+            <button class="link-button" onclick="openArtisanProfile(${a.user_id})">${a.name}</button>
+            <div class="text-sm text-muted mb-4">${a.trade || 'General Handyman'}${a.distance_km != null ? ' · ' + a.distance_km + ' km away' : ''}</div>
+            <div class="text-sm">${a.bio || 'No biography available.'}</div>
+            <div style="margin-top:10px">
+              <a href="tel:${a.phone}" class="btn btn-primary btn-sm">Call</a>
+            </div>
+          </div>
+        </div>
+      `).join('') + '</div>';
+
+      if (leafMap) refreshMapMarkers();
+    } catch (e) {
+      el.innerHTML = `<div class="form-error">${e.message}</div>`;
+    }
+  }
+
+  function initMap() {
+    if (leafMap) { refreshMapMarkers(); return; }
+    leafMap = L.map('artisan-map').setView([myLat, myLng], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(leafMap);
+    L.circleMarker([myLat, myLng], { radius:8, fillColor:'#f59e0b', color:'#fff', fillOpacity:1, weight:2 })
+      .addTo(leafMap).bindPopup('You are here');
+    refreshMapMarkers();
+  }
+
+  function refreshMapMarkers() {
+    if (!leafMap) return;
+    leafMap.eachLayer(l => { if (l._isArtMarker) leafMap.removeLayer(l); });
+    allArtisans.forEach(a => {
+      if (!a.location_lat) return;
+      const m = L.circleMarker([+a.location_lat, +a.location_lng], {
+        radius:8, fillColor:'#159e4d', color:'#fff', fillOpacity:1, weight:2
+      }).addTo(leafMap);
+      m._isArtMarker = true;
+      m.bindPopup(`<b>${a.name}</b><br>${a.trade || 'Artisan'}<br>${a.verification_status === 'verified' ? 'Verified' : 'Pending'}`);
+      m.on('click', () => openArtisanProfile(a.user_id));
+    });
+  }
+
+  async function openArtisanProfile(id) {
+    try {
+      const artisan = await api(`/artisans/${id}`);
+      document.getElementById('pp-name').textContent = artisan.name;
+      document.getElementById('pp-trade').textContent = artisan.trade || 'General Handyman';
+      document.getElementById('pp-status').textContent = artisan.verification_status || 'Pending';
+      document.getElementById('pp-bio').textContent = artisan.bio || 'No biography available.';
+      document.getElementById('pp-contact').textContent = artisan.phone || 'Not available';
+      document.getElementById('public-profile-modal').classList.add('open');
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  }
+
+  function closePublicProfile() {
+    document.getElementById('public-profile-modal').classList.remove('open');
+  }
+</script>
+</body>
+</html>

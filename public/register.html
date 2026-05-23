@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SkillLink – Create Account</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+<div class="auth-page" style="align-items:flex-start;padding-top:30px">
+  <div class="auth-card" style="max-width:480px">
+    <div class="auth-brand">
+      <h1>Skill<span>Link</span></h1>
+      <p>Create your free account</p>
+    </div>
+
+    <!-- Role selector -->
+    <div style="margin-bottom:20px">
+      <label style="display:block;margin-bottom:8px">I am a…</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="role-card" id="role-artisan" onclick="setRole('artisan')" style="cursor:pointer">
+          <input type="radio" name="role" value="artisan" style="display:none">
+          <div id="rc-artisan" style="text-align:center;padding:14px;border:2px solid #ccc;border-radius:10px;background:#fff;transition:all 0.2s">
+            <div style="font-size:1.6rem">🔧</div>
+            <div style="font-weight:700;margin-top:4px">Artisan</div>
+            <div style="font-size:.75rem;color:#666">Plumber, Electrician etc.</div>
+          </div>
+        </div>
+        <div class="role-card" id="role-client" onclick="setRole('client')" style="cursor:pointer">
+          <input type="radio" name="role" value="client" style="display:none">
+          <div id="rc-client" style="text-align:center;padding:14px;border:2px solid #ccc;border-radius:10px;background:#fff;transition:all 0.2s">
+            <div style="font-size:1.6rem">🏠</div>
+            <div style="font-weight:700;margin-top:4px">Client</div>
+            <div style="font-size:.75rem;color:#666">Homeowner or Business</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <form id="reg-form">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Full Name *</label>
+          <input type="text" id="r-name" placeholder="e.g. James Kamau" required>
+        </div>
+        <div class="form-group">
+          <label>Phone Number *</label>
+          <input type="tel" id="r-phone" placeholder="0712345678" required>
+          <div class="form-hint">Kenyan number (10 digits, starts with 07 or 01)</div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Email (optional)</label>
+        <input type="email" id="r-email" placeholder="your@email.com">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Password *</label>
+          <input type="password" id="r-pass" placeholder="Minimum 10 characters" required minlength="10">
+        </div>
+        <div class="form-group">
+          <label>Confirm Password *</label>
+          <input type="password" id="r-confirm" placeholder="Repeat password" required>
+        </div>
+      </div>
+
+      <!-- Artisan-only fields -->
+      <div id="artisan-fields" style="display:none">
+        <div class="form-group">
+          <label>Primary Trade *</label>
+          <select id="r-trade">
+            <option value="">Select your trade…</option>
+            <option>Plumbing</option><option>Electrical</option><option>Masonry</option>
+            <option>Carpentry</option><option>Painting</option><option>Welding</option>
+            <option>Tiling</option><option>General Repairs</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Short Bio</label>
+          <textarea id="r-bio" rows="2" placeholder="Briefly describe your experience…"></textarea>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Your Location (Click on the map to set)</label>
+        <div id="location-map" style="height: 200px; border: 1px solid #ccc; border-radius: 8px; margin-bottom: 8px;"></div>
+        <input type="text" id="r-location-name" placeholder="Location name will appear here" readonly>
+        <input type="hidden" id="r-lat"><input type="hidden" id="r-lng">
+      </div>
+
+      <div id="reg-err" class="form-error mb-4" style="display:none"></div>
+      <button type="submit" class="btn btn-primary w-full" id="reg-btn" disabled>Create Account</button>
+    </form>
+
+    <div class="auth-footer">
+      Already have an account? <a href="/index.html">Sign in</a>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+<script src="/js/api.js"></script>
+<script>
+  let selectedRole = null;
+  let map, marker;
+
+  function setRole(r) {
+    selectedRole = r;
+    const radio = document.querySelector(`#role-${r} input[type="radio"]`);
+    if (radio) radio.checked = true;
+    
+    const artisanDiv = document.getElementById('rc-artisan');
+    const clientDiv = document.getElementById('rc-client');
+    if (!artisanDiv || !clientDiv) return;
+    
+    if (r === 'artisan') {
+      artisanDiv.style.border = '3px solid #0F3B3D';
+      artisanDiv.style.background = '#E8EFEE';
+      clientDiv.style.border = '2px solid #ccc';
+      clientDiv.style.background = '#fff';
+      document.getElementById('artisan-fields').style.display = 'block';
+    } else {
+      clientDiv.style.border = '3px solid #0F3B3D';
+      clientDiv.style.background = '#E8EFEE';
+      artisanDiv.style.border = '2px solid #ccc';
+      artisanDiv.style.background = '#fff';
+      document.getElementById('artisan-fields').style.display = 'none';
+    }
+    document.getElementById('reg-btn').disabled = false;
+  }
+
+  function isValidKenyanPhone(phone) {
+    return /^(07|01)[0-9]{8}$/.test(phone);
+  }
+
+  function initMap() {
+    map = L.map('location-map').setView([-1.2864, 36.8172], 10);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+    map.on('click', async (e) => {
+      const { lat, lng } = e.latlng;
+      if (marker) map.removeLayer(marker);
+      marker = L.marker([lat, lng]).addTo(map);
+      document.getElementById('r-lat').value = lat;
+      document.getElementById('r-lng').value = lng;
+      try {
+        const name = await reverseGeocode(lat, lng);
+        document.getElementById('r-location-name').value = name;
+      } catch {
+        document.getElementById('r-location-name').value = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+      }
+    });
+  }
+
+  window.reverseGeocode = window.reverseGeocode || async function(lat, lng) {
+    return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  };
+
+  document.getElementById('reg-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errEl = document.getElementById('reg-err');
+    errEl.style.display = 'none';
+    if (!selectedRole) { errEl.textContent = 'Please select a role.'; errEl.style.display='block'; return; }
+    const pass = document.getElementById('r-pass').value;
+    if (pass !== document.getElementById('r-confirm').value) { errEl.textContent = 'Passwords do not match.'; errEl.style.display='block'; return; }
+    if (pass.length < 10) { errEl.textContent = 'Password must be at least 10 characters.'; errEl.style.display='block'; return; }
+    const phone = document.getElementById('r-phone').value.trim();
+    if (!isValidKenyanPhone(phone)) { errEl.textContent = 'Invalid Kenyan phone number (10 digits, 07 or 01).'; errEl.style.display='block'; return; }
+    const btn = document.getElementById('reg-btn');
+    btn.disabled = true; btn.textContent = 'Creating account…';
+    try {
+      const trade = document.getElementById('r-trade')?.value || null;
+      if (selectedRole === 'artisan' && !trade) { throw new Error('Please select your trade.'); }
+      const lat = document.getElementById('r-lat').value;
+      const lng = document.getElementById('r-lng').value;
+      if (!lat || !lng) { throw new Error('Please select a location on the map.'); }
+      const locationName = document.getElementById('r-location-name').value;
+      const { token, user } = await api('/auth/register', 'POST', {
+        name: document.getElementById('r-name').value.trim(),
+        phone: phone,
+        email: document.getElementById('r-email').value.trim() || null,
+        password: pass,
+        role: selectedRole,
+        location_lat: +lat,
+        location_lng: +lng,
+        location_name: locationName,
+        trade: trade,
+        bio: document.getElementById('r-bio')?.value.trim() || null
+      });
+      Auth.save(token, user);
+      if (user.role === 'admin') {
+        window.location.href = '/admin/dashboard.html';
+      } else {
+        window.location.href = user.role === 'artisan' ? '/artisan/dashboard.html' : '/client/dashboard.html';
+      }
+    } catch (err) {
+      errEl.textContent = err.message; errEl.style.display = 'block';
+      btn.disabled = false; btn.textContent = 'Create Account';
+    }
+  });
+  initMap();
+</script>
+</body>
+</html>

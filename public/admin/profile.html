@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SkillLink – Admin Profile</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="app-shell">
+<div id="nav-container"></div>
+<main class="page-content">
+  <div class="section-head">
+    <div class="section-title">Admin Profile</div>
+  </div>
+  <div class="card">
+    <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;">
+      <img id="profile-avatar" src="/img/default.png" class="avatar-lg" onerror="this.src='/img/default.png'">
+      <div>
+        <div style="font-size:0.95rem;color:var(--text-m);">Admin account</div>
+      </div>
+    </div>
+  </div>
+  <div class="card mt-4">
+    <div class="section-title">Account details</div>
+    <form id="profile-form">
+      <div class="form-group">
+        <label>Full name</label>
+        <input id="name" required>
+      </div>
+      <div class="form-group">
+        <label>Phone</label>
+        <input id="phone" disabled>
+      </div>
+      <div class="form-group">
+        <label>Email</label>
+        <input id="email" type="email">
+      </div>
+      <div id="profile-error" class="form-error" style="display:none"></div>
+      <button class="btn btn-primary" type="submit">Save profile</button>
+    </form>
+  </div>
+  <div class="card mt-4">
+    <div class="section-title">Change password</div>
+    <form id="password-form">
+      <div class="form-group">
+        <label>Current password</label>
+        <input id="current-password" type="password" required>
+      </div>
+      <div class="form-group">
+        <label>New password</label>
+        <input id="new-password" type="password" required minlength="6">
+      </div>
+      <div id="password-error" class="form-error" style="display:none"></div>
+      <button class="btn btn-primary" type="submit">Change password</button>
+    </form>
+  </div>
+</main>
+<div id="toast"></div>
+<script src="/js/api.js"></script>
+<script>
+  if (!Auth.check('admin')) throw '';
+  renderNav('admin');
+
+  async function loadProfile() {
+    try {
+      const me = await api('/users/me');
+      document.getElementById('name').value = me.name || '';
+      document.getElementById('phone').value = me.phone || '';
+      document.getElementById('email').value = me.email || '';
+      document.getElementById('profile-avatar').src = avatarSrc(me.profile_pic);
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  }
+
+  document.getElementById('profile-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const err = document.getElementById('profile-error');
+    err.style.display = 'none';
+    const btn = e.target.querySelector('button');
+    btn.disabled = true; btn.textContent = 'Saving...';
+    try {
+      await api('/users/me', 'PUT', {
+        name: document.getElementById('name').value.trim(),
+        email: document.getElementById('email').value.trim()
+      });
+      toast('Profile updated', 'success');
+      loadProfile();
+    } catch (e) {
+      err.textContent = e.message; err.style.display = 'block';
+    } finally { btn.disabled = false; btn.textContent = 'Save profile'; }
+  });
+
+  document.getElementById('password-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const err = document.getElementById('password-error');
+    err.style.display = 'none';
+    const btn = e.target.querySelector('button');
+    btn.disabled = true; btn.textContent = 'Updating...';
+    try {
+      await api('/users/password', 'PUT', {
+        current_password: document.getElementById('current-password').value,
+        new_password: document.getElementById('new-password').value
+      });
+      toast('Password updated', 'success');
+      e.target.reset();
+    } catch (e) {
+      err.textContent = e.message; err.style.display = 'block';
+    } finally { btn.disabled = false; btn.textContent = 'Change password'; }
+  });
+
+  loadProfile();
+</script>
+</body>
+</html>

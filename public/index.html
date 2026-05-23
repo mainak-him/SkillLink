@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SkillLink – Login</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    .tab-toggle { display:flex; background:#F1F5F9; border-radius:8px; padding:3px; margin-bottom:22px; }
+    .tab-toggle button { flex:1; padding:8px; border:none; background:none; border-radius:6px; font-weight:600; font-size:.88rem; cursor:pointer; color:var(--text-m); transition:background .15s,color .15s; }
+    .tab-toggle button.active { background:var(--card); color:var(--primary); box-shadow:0 1px 4px rgba(0,0,0,.1); }
+    #forgot-panel { display:none; }
+  </style>
+</head>
+<body>
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="auth-brand">
+      <h1>Skill<span>Link</span></h1>
+      <p>Kenya's Verified Artisan Platform</p>
+    </div>
+
+    <!-- Login -->
+    <div id="login-panel">
+      <div class="tab-toggle">
+        <button class="active" id="tab-login" onclick="showLogin()">Sign In</button>
+        <button id="tab-forgot" onclick="showForgot()">Forgot Password</button>
+      </div>
+      <form id="login-form">
+        <div class="form-group">
+          <label>Phone or Email</label>
+          <input type="text" id="login-phone" placeholder="e.g. 0712345001 or you@email.com" required maxlength="100">
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="login-pass" placeholder="Enter your password" required>
+        </div>
+        <div id="login-err" class="form-error mb-4" style="display:none"></div>
+        <button type="submit" class="btn btn-primary w-full" id="login-btn">Sign In</button>
+      </form>
+      <div class="auth-footer">
+        Don't have an account? <a href="/register.html">Create one</a>
+      </div>
+    </div>
+
+    <!-- Forgot password -->
+    <div id="forgot-panel">
+      <h3 style="margin-bottom:16px;font-size:1rem">Reset Password</h3>
+      <form id="forgot-form">
+        <div class="form-group">
+          <label>Registered Phone or Email</label>
+          <input type="text" id="fp-phone" placeholder="e.g. 0712345001 or you@email.com" required maxlength="100">
+        </div>
+        <div class="form-group">
+          <label>Simulated OTP</label>
+          <input type="text" id="fp-otp" placeholder="Enter 1234" required maxlength="4">
+        </div>
+        <div class="form-group">
+          <label>New Password</label>
+          <input type="password" id="fp-pass" placeholder="Minimum 10 characters" required minlength="10">
+        </div>
+        <div class="form-group">
+          <label>Confirm New Password</label>
+          <input type="password" id="fp-confirm" placeholder="Repeat new password" required>
+        </div>
+        <div id="fp-err" class="form-error mb-4" style="display:none"></div>
+        <button type="submit" class="btn btn-primary w-full">Reset Password</button>
+      </form>
+      <div class="auth-footer">
+        <a href="#" onclick="showLogin()">← Back to Sign In</a>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+<script src="/js/api.js"></script>
+<script>
+  // Redirect if already logged in
+  if (Auth.token() && Auth.user()) {
+    const u = Auth.user();
+    window.location.href = u.role === 'artisan' ? '/artisan/dashboard.html' : '/client/dashboard.html';
+  }
+
+  function showLogin()  { document.getElementById('login-panel').style.display='block'; document.getElementById('forgot-panel').style.display='none'; document.getElementById('tab-login').classList.add('active'); document.getElementById('tab-forgot').classList.remove('active'); }
+  function showForgot() { document.getElementById('login-panel').style.display='none'; document.getElementById('forgot-panel').style.display='block'; document.getElementById('tab-login').classList.remove('active'); document.getElementById('tab-forgot').classList.add('active'); }
+
+  document.getElementById('login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('login-btn');
+    const errEl = document.getElementById('login-err');
+    errEl.style.display = 'none';
+    btn.disabled = true; btn.textContent = 'Signing in…';
+    try {
+      const identifier = document.getElementById('login-phone').value.trim();
+      const { token, user } = await api('/auth/login', 'POST', {
+        identifier,
+        phone: identifier,
+        email: identifier,
+        password: document.getElementById('login-pass').value
+      });
+      Auth.save(token, user);
+      if (user.role === 'admin') {
+        window.location.href = '/admin/dashboard.html';
+      } else {
+        window.location.href = user.role === 'artisan' ? '/artisan/dashboard.html' : '/client/dashboard.html';
+      }
+    } catch (err) {
+      errEl.textContent = err.message; errEl.style.display = 'block';
+      btn.disabled = false; btn.textContent = 'Sign In';
+    }
+  });
+
+  document.getElementById('forgot-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errEl = document.getElementById('fp-err');
+    errEl.style.display = 'none';
+    const otp = document.getElementById('fp-otp').value;
+    if (otp !== '1234') { errEl.textContent = 'Invalid OTP.'; errEl.style.display='block'; return; }
+    const pass = document.getElementById('fp-pass').value;
+    const conf = document.getElementById('fp-confirm').value;
+    if (pass !== conf) { errEl.textContent = 'Passwords do not match.'; errEl.style.display='block'; return; }
+    if (pass.length < 10) { errEl.textContent = 'Password must be at least 10 characters.'; errEl.style.display='block'; return; }
+    const btn = e.target.querySelector('button');
+    btn.disabled = true; btn.textContent = 'Resetting…';
+    try {
+      await api('/auth/reset-password', 'POST', {
+        phone: document.getElementById('fp-phone').value.trim(),
+        otp: otp,
+        new_password: pass
+      });
+      toast('Password reset successfully! Please sign in.', 'success');
+      e.target.reset(); showLogin();
+    } catch (err) {
+      errEl.textContent = err.message; errEl.style.display='block';
+    } finally { btn.disabled=false; btn.textContent='Reset Password'; }
+  });
+</script>
+</body>
+</html>

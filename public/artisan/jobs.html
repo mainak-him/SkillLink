@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SkillLink – Browse Jobs</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    #map-container { display:none; }
+    #list-container { display:block; }
+    #job-map { height: 500px; border-radius: var(--radius); }
+    .view-toggle { display:flex; gap:6px; }
+    .view-toggle button { padding:6px 14px; border-radius:6px; font-size:.82rem; font-weight:600; cursor:pointer; border:1.5px solid var(--border); background:var(--card); color:var(--text-m); transition:all .15s; }
+    .view-toggle button.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+    .map-legend { display:flex; gap:14px; flex-wrap:wrap; font-size:.8rem; color:var(--text-m); margin-top:8px; align-items:center; }
+    .legend-dot { width:12px; height:12px; border-radius:50%; display:inline-block; margin-right:4px; }
+    .tab-buttons { display:flex; gap:8px; margin-bottom:16px; border-bottom:2px solid var(--border); }
+    .tab-buttons button { padding:10px 16px; background:none; border:none; font-weight:600; cursor:pointer; color:var(--text-m); border-bottom:3px solid transparent; margin-bottom:-2px; transition:all .15s; }
+    .tab-buttons button.active { color:var(--primary); border-bottom-color:var(--primary); }
+    .tab-buttons button:hover { color:var(--primary); }
+    .browse-section { display:block; }
+    .browse-section.hidden { display:none; }
+    .my-jobs-section { display:none; }
+    .my-jobs-section.active { display:block; }
+  </style>
+</head>
+<body class="app-shell">
+<div id="nav-container"></div>
+<main class="page-content">
+  <div class="section-head">
+    <div>
+      <div class="section-title">Jobs Marketplace</div>
+      <div id="loc-display" style="font-size:.82rem;color:var(--text-l);margin-top:2px">Detecting your location…</div>
+    </div>
+  </div>
+
+  <!-- Tab Navigation -->
+  <div class="tab-buttons">
+    <button class="active" id="tab-browse" onclick="switchTab('browse')">Browse Open Jobs</button>
+    <button id="tab-my" onclick="switchTab('my')">My Jobs</button>
+  </div>
+
+  <!-- BROWSE TAB ======================== -->
+  <div class="browse-section" id="browse-tab">
+    <div class="section-head">
+      <div>
+        <div style="font-size:.85rem;color:var(--text-l)">Find new jobs matching your skill and location</div>
+      </div>
+      <div class="view-toggle">
+        <button class="active" id="btn-list" onclick="showView('list')">List View</button>
+        <button id="btn-map" onclick="showView('map')">Map View</button>
+      </div>
+    </div>
+
+    <!-- Filter bar -->
+    <div class="filter-bar">
+      <select id="filter-skill" onchange="loadJobs()">
+        <option value="all">All Trades</option>
+        <option>Plumbing</option><option>Electrical</option><option>Masonry</option>
+        <option>Carpentry</option><option>Painting</option><option>Welding</option>
+        <option>Tiling</option><option>General Repairs</option>
+      </select>
+      <button class="btn btn-outline btn-sm" onclick="loadJobs()">Refresh</button>
+      <span id="job-count" class="text-sm text-muted"></span>
+    </div>
+
+    <!-- List view -->
+    <div id="list-container">
+      <div id="jobs-list"><div class="text-muted text-sm">Loading jobs…</div></div>
+    </div>
+
+    <!-- Map view -->
+    <div id="map-container" class="card">
+      <div id="job-map"></div>
+      <div class="map-legend">
+        <span><span class="legend-dot" style="background:#EF4444"></span>Job location</span>
+        <span><span class="legend-dot" style="background:#0284C7"></span>Your location</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- MY JOBS TAB ======================== -->
+  <div class="my-jobs-section" id="my-jobs-tab">
+    <div class="section-head">
+      <div>
+        <div style="font-size:.85rem;color:var(--text-l)">Manage your accepted jobs and track progress</div>
+      </div>
+      <select id="my-status-filter" onchange="loadMyJobs()">
+        <option value="all">All Statuses</option>
+        <option value="assigned">Active</option>
+        <option value="completed">Awaiting Confirmation</option>
+        <option value="confirmed">Confirmed</option>
+        <option value="closed">Closed/Paid</option>
+        <option value="disputed">Disputed</option>
+      </select>
+    </div>
+    <div id="my-jobs-list"><div class="text-muted text-sm">Loading…</div></div>
+  </div>
+</main>
+<div id="toast"></div>
+
+<!-- Job detail modal (not used much, keep) -->
+<div class="modal-overlay" id="job-modal">
+  <div class="modal-box" style="position:relative;max-width:540px">
+    <button class="modal-close" onclick="closeJobModal()">×</button>
+    <div id="job-modal-content"></div>
+  </div>
+</div>
+
+<!-- Quote modal -->
+<div class="modal-overlay" id="quote-modal">
+  <div class="modal-box" style="position:relative">
+    <button class="modal-close" onclick="document.getElementById('quote-modal').classList.remove('open')">×</button>
+    <div class="modal-title">Quote Your Price</div>
+    <div class="form-group"><label>Job</label><div id="qm-title" style="font-weight:600"></div></div>
+    <div class="form-group">
+      <label>Amount (KES) *</label>
+      <input type="number" id="qm-price" placeholder="e.g. 3500" min="1">
+    </div>
+    <div id="qm-err" class="form-error" style="display:none"></div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn btn-primary" onclick="submitQuote()">Submit Quote</button>
+      <button class="btn btn-outline" onclick="document.getElementById('quote-modal').classList.remove('open')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Concern modal -->
+<div class="modal-overlay" id="concern-modal">
+  <div class="modal-box">
+    <button class="modal-close" onclick="document.getElementById('concern-modal').classList.remove('open')">×</button>
+    <div class="modal-title">Raise Concern to Admin</div>
+    <div style="background:#f0f4ff;border-left:4px solid #2563eb;padding:12px;border-radius:4px;margin:16px 0;font-size:0.9rem">
+      Share your side of the story. The admin will review this along with the client's dispute.
+    </div>
+    <div class="form-group">
+      <label>Your Message *</label>
+      <textarea id="concern-msg" rows="4" placeholder="Explain your position on this dispute..."></textarea>
+    </div>
+    <div id="concern-err" class="form-error" style="display:none"></div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn btn-primary" onclick="submitConcern()">Submit Concern</button>
+      <button class="btn btn-outline" onclick="document.getElementById('concern-modal').classList.remove('open')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/js/api.js"></script>
+<script>
+  if (!Auth.check('artisan')) throw '';
+  renderNav('artisan');
+
+  let myLat = -1.2921, myLng = 36.8219;
+  let leafMap = null, quoteJobId = null;
+  let allJobs = [];
+  let currentTab = 'browse';
+  let userIsAvailable = 1;
+
+  // Tab switching
+  function switchTab(tab) {
+    currentTab = tab;
+    const browseEl = document.getElementById('browse-tab');
+    const myJobsEl = document.getElementById('my-jobs-tab');
+    const browseBtnEl = document.getElementById('tab-browse');
+    const myBtnEl = document.getElementById('tab-my');
+    
+    if (tab === 'browse') {
+      browseEl.classList.remove('hidden');
+      myJobsEl.classList.remove('active');
+      browseBtnEl.classList.add('active');
+      myBtnEl.classList.remove('active');
+    } else {
+      browseEl.classList.add('hidden');
+      myJobsEl.classList.add('active');
+      browseBtnEl.classList.remove('active');
+      myBtnEl.classList.add('active');
+    }
+  }
+
+  // Restore quote modal if page was refreshed mid-quote
+  quoteJobId = sessionStorage.getItem('sl_qjid') ? +sessionStorage.getItem('sl_qjid') : null;
+  if (quoteJobId) {
+    setTimeout(() => openQuote(quoteJobId, sessionStorage.getItem('sl_qjtitle') || 'Job'), 1500);
+  }
+
+  // Detect location & load user availability
+  (async () => {
+    try {
+      const me = await api('/users/me');
+      userIsAvailable = me.is_available ? 1 : 0;
+    } catch (e) { console.error('Could not load availability status:', e); }
+    try {
+      const pos = await getCurrentPosition();
+      myLat = pos.coords.latitude; myLng = pos.coords.longitude;
+      const name = await reverseGeocode(myLat, myLng);
+      document.getElementById('loc-display').textContent = name;
+    } catch {
+      document.getElementById('loc-display').textContent = 'Nairobi County (location unavailable)';
+    }
+    await Promise.all([loadJobs(), loadMyJobs()]);
+    setInterval(async () => {
+      if (!document.querySelector('.modal-overlay.open')) {
+        await refreshWithScroll(async () => await Promise.all([loadJobs(), loadMyJobs()]));
+      }
+    }, 15000);
+  })();
+
+  // Highlight job from URL param
+  function highlightJobFromUrl() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const jobId = urlParams.get('job');
+    if (jobId) {
+      const jobCard = document.querySelector(`.job-card[data-job-id="${jobId}"]`);
+      if (jobCard) {
+        jobCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        jobCard.classList.add('job-card-highlight');
+        setTimeout(() => jobCard.classList.remove('job-card-highlight'), 2000);
+      }
+    }
+  }
+
+  function showView(v) {
+    document.getElementById('list-container').style.display = v === 'list' ? 'block' : 'none';
+    document.getElementById('map-container').style.display  = v === 'map'  ? 'block' : 'none';
+    document.getElementById('btn-list').classList.toggle('active', v==='list');
+    document.getElementById('btn-map').classList.toggle('active',  v==='map');
+    if (v === 'map') initMap();
+  }
+
+  async function loadJobs() {
+    const skill = document.getElementById('filter-skill').value;
+    const el    = document.getElementById('jobs-list');
+    el.innerHTML = '<div class="text-muted text-sm">Loading…</div>';
+    try {
+      allJobs = await api(`/jobs?skill=${skill}&lat=${myLat}&lng=${myLng}`);
+      document.getElementById('job-count').textContent = `${allJobs.length} job${allJobs.length!==1?'s':''} found`;
+      if (!allJobs.length) { el.innerHTML='<div class="empty-state"><p>No open jobs match your filter.</p></div>'; return; }
+      el.innerHTML = '<div class="job-list">' + allJobs.map(renderOpenJob).join('') + '</div>';
+      if (leafMap) refreshMapMarkers();
+      highlightJobFromUrl();
+    } catch(e) { el.innerHTML=`<div class="form-error">${e.message}</div>`; }
+  }
+
+  async function loadMyJobs() {
+    const s   = document.getElementById('my-status-filter').value;
+    const el  = document.getElementById('my-jobs-list');
+    el.innerHTML = '<div class="text-muted text-sm">Loading…</div>';
+    try {
+      const jobs = await api(`/jobs?mine=1&status=${s}`);
+      if (!jobs.length) { el.innerHTML='<div class="text-muted text-sm">No jobs in this category.</div>'; return; }
+      el.innerHTML = '<div class="job-list">' + jobs.map(renderMyJob).join('') + '</div>';
+      highlightJobFromUrl();
+    } catch (e) {
+      toast(e.message, 'error');
+      el.innerHTML = `<div class="form-error">${e.message}</div>`;
+    }
+  }
+
+  function renderOpenJob(j) {
+    const dist = j.distance_km != null ? `<span class="pill pill-gray">${j.distance_km} km away</span>` : '';
+    const budget = (j.budget_min||j.budget_max) ? `<span class="pill pill-orange">KES ${(+j.budget_min).toLocaleString()}–${(+j.budget_max).toLocaleString()}</span>` : '';
+    const emergencyBadge = j.is_emergency ? '<span class="pill pill-red">🚨 URGENT</span>' : '';
+    const acceptButton = userIsAvailable ? `<button class="btn btn-success btn-sm" onclick="acceptJob(${j.job_id})">Accept Job</button>` : '<span class="pill pill-gray">Unavailable</span>';
+    return `
+      <div class="job-card" data-job-id="${j.job_id}">
+        <div class="job-card-top">
+          <div class="job-title">${j.job_title}</div>
+          <span class="pill pill-blue">Open</span>
+        </div>
+        <div class="job-meta">
+          <span class="pill pill-blue">${j.required_skill}</span>
+          ${dist}
+          ${budget}
+          ${emergencyBadge}
+          <span class="pill pill-gray">${fmtDate(j.created_at)}</span>
+        </div>
+        <div class="job-desc">${j.job_description}</div>
+        <div style="font-size:.8rem;color:var(--text-l);margin-top:6px">Client: ${j.client_name}</div>
+        <div class="job-actions">
+          <button class="btn btn-primary btn-sm" onclick="viewJobOnMap(${j.job_id})">View on Map</button>
+          ${acceptButton}
+        </div>
+      </div>`;
+  }
+
+  function renderMyJob(j) {
+    const actions = [];
+    if (j.status==='assigned')  actions.push(`<button class="btn btn-success btn-sm" onclick="markComplete(${j.job_id})">Mark Complete</button>`);
+    if (j.status==='confirmed') actions.push(`<button class="btn btn-primary btn-sm" onclick="openQuote(${j.job_id},'${j.job_title.replace(/'/g,"\\'")}')">Quote Price</button>`);
+    if (j.status==='confirmed' && j.quoted_price)
+      actions.push(`<button class="btn btn-success btn-sm" onclick="markPaid(${j.job_id})">Mark Payment Received</button>`);
+    if (j.status==='disputed')
+      actions.push(`<button class="btn btn-warn btn-sm" onclick="openConcernModal(${j.job_id})">Raise Concern to Admin</button>`);
+    return `
+      <div class="job-card" data-job-id="${j.job_id}">
+        <div class="job-card-top"><div class="job-title">${j.job_title}</div>${statusPill(j.status)}</div>
+        <div class="job-meta">
+          <span class="pill pill-blue">${j.required_skill}</span>
+          <span class="pill pill-gray">${j.job_location_name||'–'}</span>
+          ${j.quoted_price?`<span class="pill pill-green">Quoted: ${fmtMoney(j.quoted_price)}</span>`:''}
+          ${j.payment_status==='paid'?'<span class="pill pill-green">Paid</span>':''}
+        </div>
+        <div class="job-desc">${j.job_description}</div>
+        <div style="font-size:.8rem;color:var(--text-l);margin-top:6px">Client: ${j.client_name} • ${fmtDate(j.created_at)}</div>
+        ${actions.length?`<div class="job-actions">${actions.join('')}</div>`:''}
+      </div>`;
+  }
+
+  // Map functions (unchanged)
+  function initMap() {
+    if (leafMap) { refreshMapMarkers(); return; }
+    leafMap = L.map('job-map').setView([myLat, myLng], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors', maxZoom: 18
+    }).addTo(leafMap);
+    L.circleMarker([myLat, myLng], { radius:10, fillColor:'#f59e0b', color:'#fff', fillOpacity:1, weight:2 })
+      .addTo(leafMap).bindPopup('Your location');
+    refreshMapMarkers();
+  }
+
+  function refreshMapMarkers() {
+    if (!leafMap) return;
+    leafMap.eachLayer(l => { if (l._isJobMarker) leafMap.removeLayer(l); });
+    allJobs.forEach(j => {
+      if (!j.job_location_lat) return;
+      const m = L.circleMarker([+j.job_location_lat, +j.job_location_lng], {
+        radius:9, fillColor:'#EF4444', color:'#fff', fillOpacity:1, weight:2
+      }).addTo(leafMap);
+      m._isJobMarker = true;
+      m.bindPopup(`<b>${j.job_title}</b><br>${j.required_skill}<br>${j.job_location_name||''}<br>${j.distance_km!=null?`${j.distance_km} km away`:''}`);
+    });
+  }
+
+  async function viewJobOnMap(id) {
+    try {
+      const j = await api(`/jobs/${id}`);
+      showView('map');
+      if (!leafMap) { initMap(); await new Promise(r=>setTimeout(r,400)); }
+      leafMap.invalidateSize();
+      leafMap.eachLayer(l => { if (l._isLine) leafMap.removeLayer(l); });
+      const line = L.polyline([[myLat,myLng],[+j.job_location_lat,+j.job_location_lng]],
+        { color:'#b45309', weight:2, dashArray:'6,6' }).addTo(leafMap);
+      line._isLine = true;
+      leafMap.fitBounds(line.getBounds(), { padding: [50, 50] });
+      const dist = haversine(myLat, myLng, +j.job_location_lat, +j.job_location_lng);
+      toast(`Job is ${dist} km from your location`, 'info');
+    } catch(e) { toast(e.message,'error'); }
+  }
+
+  async function acceptJob(id) {
+    if (!confirm('Accept this job? The client will be notified.')) return;
+    try {
+      await api(`/jobs/${id}/accept`, 'PUT');
+      toast('Job accepted!','success');
+      loadJobs(); loadMyJobs();
+    } catch(e) {
+      toast(e.message,'error');
+    }
+  }
+
+  async function markComplete(id) {
+    if (!confirm('Mark this job as complete?')) return;
+    try { await api(`/jobs/${id}/complete`,'PUT'); toast('Marked complete!','success'); loadMyJobs(); loadJobs(); }
+    catch(e) { toast(e.message,'error'); }
+  }
+
+  function openQuote(id, title) {
+    quoteJobId = id;
+    sessionStorage.setItem('sl_qjid', id);
+    sessionStorage.setItem('sl_qjtitle', title);
+    document.getElementById('qm-title').textContent = title;
+    document.getElementById('qm-price').value = sessionStorage.getItem('sl_qprice_' + id) || '';
+    document.getElementById('qm-err').style.display='none';
+    document.getElementById('quote-modal').classList.add('open');
+  }
+
+  async function submitQuote() {
+    const price = document.getElementById('qm-price').value;
+    const errEl = document.getElementById('qm-err');
+    if (!price||+price<=0) { errEl.textContent='Enter a valid amount.'; errEl.style.display='block'; return; }
+    sessionStorage.setItem('sl_qprice_' + quoteJobId, price);
+    try {
+      await api(`/jobs/${quoteJobId}/quote`, 'PUT', { quoted_price:+price });
+      sessionStorage.removeItem('sl_qjid');
+      sessionStorage.removeItem('sl_qjtitle');
+      sessionStorage.removeItem('sl_qprice_' + quoteJobId);
+      toast('Quote submitted!','success');
+      document.getElementById('quote-modal').classList.remove('open');
+      loadMyJobs();
+    } catch(e) { errEl.textContent=e.message; errEl.style.display='block'; }
+  }
+
+  async function markPaid(id) {
+    if (!confirm('Confirm payment received?')) return;
+    try { await api(`/jobs/${id}/payment`,'PUT'); toast('Payment recorded!','success'); loadMyJobs(); }
+    catch(e) { toast(e.message,'error'); }
+  }
+
+  function closeJobModal() { document.getElementById('job-modal').classList.remove('open'); }
+
+  let concernJobId = null;
+  function openConcernModal(jobId) {
+    concernJobId = jobId;
+    document.getElementById('concern-msg').value = '';
+    document.getElementById('concern-err').style.display = 'none';
+    document.getElementById('concern-modal').classList.add('open');
+  }
+
+  async function submitConcern() {
+    const msg = document.getElementById('concern-msg').value.trim();
+    const err = document.getElementById('concern-err');
+    if (!msg || msg.length < 5) {
+      err.textContent = 'Message must be at least 5 characters.';
+      err.style.display = 'block';
+      return;
+    }
+    try {
+      await api(`/jobs/${concernJobId}/concern`, 'POST', { message: msg });
+      toast('Concern submitted to admin.', 'success');
+      document.getElementById('concern-modal').classList.remove('open');
+      loadMyJobs();
+    } catch (e) {
+      err.textContent = e.message;
+      err.style.display = 'block';
+    }
+  }
+</script>
+</body>
+</html>

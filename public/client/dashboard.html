@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SkillLink - Client Dashboard</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body class="app-shell">
+<div id="nav-container"></div>
+<main class="page-content">
+  <div style="display:flex;align-items:center;gap:14px;margin-bottom:24px;flex-wrap:wrap">
+    <img id="profile-pic" src="/img/default.png" class="avatar-lg" onerror="this.src='/img/default.png'">
+    <div>
+      <h2 id="welcome-name" style="font-size:1.3rem;font-weight:800;margin:0">Welcome!</h2>
+      <div style="font-size:0.85rem;color:var(--text-m);margin-top:4px">Client Account</div>
+    </div>
+  </div>
+
+  <div class="stats-panel" id="stats-grid">
+    <div class="stat-item">
+      <div class="stat-title">Total Posted</div>
+      <div class="stat-value">–</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-title">Open Jobs</div>
+      <div class="stat-value">–</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-title">Active Work</div>
+      <div class="stat-value">–</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-title">Completed</div>
+      <div class="stat-value">–</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-title">Total Spent</div>
+      <div class="stat-value">–</div>
+    </div>
+  </div>
+
+  <div class="card mt-4">
+    <div class="section-head">
+      <div class="section-title">My Jobs</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="job-filter" onchange="filterClientJobs()" style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.9rem">
+          <option value="recent">Recent (3)</option>
+          <option value="open">Open</option>
+          <option value="assigned">Active</option>
+          <option value="completed">Completed</option>
+          <option value="all">All Jobs</option>
+        </select>
+        <a href="/client/jobs.html" class="btn btn-outline btn-sm">Manage</a>
+      </div>
+    </div>
+    <div id="client-jobs-list"><div class="text-muted text-sm">Loading...</div></div>
+  </div>
+
+  <div class="card mt-4">
+    <div class="section-title">Skills Distribution</div>
+    <div style="position:relative">
+      <canvas id="skillChart" height="200" style="display:none"></canvas>
+      <div id="skills-placeholder" class="text-muted" style="padding:16px;text-align:center;font-size:0.9rem">Post more jobs to see skill distribution</div>
+    </div>
+  </div>
+
+</main>
+<div id="toast"></div>
+
+<script src="/js/api.js"></script>
+<script>
+  if (!Auth.check('client')) throw '';
+  renderNav('client');
+  const user = Auth.user();
+  let chartsRendered = { skills: false };
+
+  async function loadClientDashboard() {
+    try {
+      const me = await api('/users/me');
+      Auth.save(Auth.token(), { ...user, ...me });
+      document.getElementById('welcome-name').textContent = `Welcome, ${me.name.split(' ')[0]}!`;
+      document.getElementById('profile-pic').src = avatarSrc(me.profile_pic);
+    } catch {}
+
+    try {
+      const s = await api('/users/stats');
+      const grid = document.getElementById('stats-grid');
+      grid.children[0].querySelector('.stat-value').textContent = s.total_posted ?? 0;
+      grid.children[1].querySelector('.stat-value').textContent = s.open_jobs ?? 0;
+      grid.children[2].querySelector('.stat-value').textContent = s.assigned_jobs ?? 0;
+      grid.children[3].querySelector('.stat-value').textContent = s.completed_jobs ?? 0;
+      grid.children[4].querySelector('.stat-value').textContent = `KES ${(+(s.total_spent||0)).toLocaleString()}`;
+    } catch {}
+
+    try {
+      const jobs = await api('/jobs');
+      // Store all jobs for filtering
+      window.allClientJobs = Array.isArray(jobs) ? jobs : [];
+      filterClientJobs(); // Apply initial filter
+    } catch {}
+  }
+
+  loadClientDashboard();
+
+  async function loadSkillChart() {
+    if (chartsRendered.skills) return;
+    try {
+      const data = await api('/users/chart-data');
+      if (data.type === 'client' && data.data && data.data.length) {
+        chartsRendered.skills = true;
+        document.getElementById('skills-placeholder').style.display = 'none';
+        document.getElementById('skillChart').style.display = 'block';
+        const ctx = document.getElementById('skillChart').getContext('2d');
+        new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: data.data.map(d => d.required_skill),
+            datasets: [{
+              label: 'Jobs posted',
+              data: data.data.map(d => d.count),
+              backgroundColor: '#0F3B3D',
+              borderRadius: 6
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true } }
+          }
+        });
+      }
+    } catch (e) {
+      console.error('Chart error:', e);
+    }
+  }
+
+  loadSkillChart();
+
+  function filterClientJobs() {
+    if (!window.allClientJobs) return;
+    const filter = document.getElementById('job-filter').value;
+    let filteredJobs = [];
+    if (filter === 'recent') {
+      filteredJobs = window.allClientJobs.slice(0, 3);
+    } else if (filter === 'open') {
+      filteredJobs = window.allClientJobs.filter(j => j.status === 'open');
+    } else if (filter === 'assigned') {
+      filteredJobs = window.allClientJobs.filter(j => j.status === 'assigned');
+    } else if (filter === 'completed') {
+      filteredJobs = window.allClientJobs.filter(j => j.status === 'completed' || j.status === 'closed');
+    } else if (filter === 'all') {
+      filteredJobs = window.allClientJobs;
+    }
+    const el = document.getElementById('client-jobs-list');
+    if (!filteredJobs.length) {
+      el.innerHTML = '<div class="empty-state"><p>No jobs match this filter</p></div>';
+    } else {
+      el.innerHTML = '<div class="job-list">' + filteredJobs.map(j => `
+        <div class="job-card" data-job-id="${j.job_id}">
+          <div class="job-card-top">
+            <div class="job-title">${j.job_title}</div>
+            ${statusPill(j.status)}
+          </div>
+          <div class="job-meta">
+            <span class="pill pill-blue">${j.required_skill}</span>
+            <span class="pill pill-gray">${fmtDate(j.created_at)}</span>
+          </div>
+        </div>
+      `).join('') + '</div>';
+    }
+  }
+</script>
+</body>
+</html>

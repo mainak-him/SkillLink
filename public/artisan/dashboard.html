@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SkillLink – Artisan Dashboard</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body class="app-shell">
+<div id="nav-container"></div>
+<main class="page-content">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:24px">
+    <div style="display:flex;align-items:center;gap:14px">
+      <img id="profile-pic" src="/img/default.svg" class="avatar-lg" onerror="this.src='/img/default.svg'">
+      <div>
+        <h2 id="welcome-name" style="font-size:1.3rem;font-weight:800;margin:0">Welcome back!</h2>
+        <div id="verif-chip" style="margin-top:4px;font-size:0.85rem"></div>
+        <div id="trade-label" style="font-size:0.8rem;color:var(--text-m);margin-top:2px"></div>
+      </div>
+    </div>
+    <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px 12px;background:var(--bg);border-radius:6px;border:1px solid var(--border)">
+      <span id="avail-label" style="font-weight:500;font-size:0.9rem">Available for work</span>
+      <input type="checkbox" id="availability-toggle" class="toggle-switch" style="margin:0">
+    </label>
+  </div>
+
+  <div class="stats-panel" id="stats-grid">
+    <div class="stat-item">
+      <div class="stat-title">Jobs Available</div>
+      <div class="stat-value">–</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-title">Active Jobs</div>
+      <div class="stat-value">–</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-title">Completed</div>
+      <div class="stat-value">–</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-title">Awaiting Confirmation</div>
+      <div class="stat-value">–</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-title">Total Earned</div>
+      <div class="stat-value">–</div>
+    </div>
+  </div>
+
+  <div class="card mt-4">
+    <div class="section-title">Monthly Earnings</div>
+    <div style="position:relative">
+      <canvas id="earningsChart" height="200" style="display:none"></canvas>
+      <div id="earnings-placeholder" class="text-muted" style="padding:16px;text-align:center;font-size:0.9rem">Complete paid jobs to see earnings</div>
+    </div>
+  </div>
+
+  <div class="card mt-4">
+    <div class="section-title">Recommended Skills Near You</div>
+    <div id="ai-recommendations" class="flex gap-2" style="flex-wrap:wrap;margin-top:12px;min-height:32px;align-items:center"></div>
+  </div>
+
+  <div class="card mt-4">
+    <div class="section-head">
+      <div class="section-title">My Jobs</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="job-filter" onchange="filterJobs()" style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.9rem">
+          <option value="active">Active Jobs</option>
+          <option value="awaiting">Awaiting Confirmation</option>
+          <option value="all">All Jobs</option>
+        </select>
+        <a href="/artisan/jobs.html" class="btn btn-outline btn-sm">Browse jobs</a>
+      </div>
+    </div>
+    <div id="active-jobs-list"><div class="text-muted text-sm">Loading…</div></div>
+  </div>
+</main>
+<div id="toast"></div>
+
+<!-- Quote modal -->
+<div class="modal-overlay" id="quote-modal">
+  <div class="modal-box" style="position:relative">
+    <button class="modal-close" onclick="closeQuote()">×</button>
+    <div class="modal-title">Quote Your Price</div>
+    <div class="form-group">
+      <label>Job</label>
+      <div id="qm-title" style="font-weight:600;color:var(--text)"></div>
+    </div>
+    <div class="form-group">
+      <label>Amount (KES) *</label>
+      <input type="number" id="qm-price" placeholder="e.g. 3500" min="1" step="1">
+    </div>
+    <div id="qm-err" class="form-error" style="display:none"></div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn btn-primary" onclick="submitQuote()">Submit Quote</button>
+      <button class="btn btn-outline" onclick="closeQuote()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script>
+  if (!Auth.check('artisan')) throw '';
+  renderNav('artisan');
+  const user = Auth.user();
+  let quoteJobId = null;
+  let chartsRendered = { earnings: false };
+
+  quoteJobId = sessionStorage.getItem('sl_qjid') ? +sessionStorage.getItem('sl_qjid') : null;
+  if (quoteJobId) {
+    setTimeout(() => openQuote(quoteJobId, sessionStorage.getItem('sl_qjtitle') || 'Job'), 1500);
+  }
+
+  async function loadDashboard() {
+    // Profile
+    try {
+      const me = await api('/users/me');
+      Auth.save(Auth.token(), { ...user, ...me });
+      document.getElementById('welcome-name').textContent = `Welcome, ${me.name.split(' ')[0]}!`;
+      document.getElementById('profile-pic').src = avatarSrc(me.profile_pic);
+      document.getElementById('trade-label').textContent = me.trade ? `Trade: ${me.trade}` : '';
+      document.getElementById('verif-chip').innerHTML = me.verification_status === 'verified'
+        ? '<span class="verified-chip">Verified Artisan</span>'
+        : '<span class="pending-chip">Pending Verification</span>';
+      
+      // Load availability status
+      document.getElementById('availability-toggle').checked = me.is_available == 1;
+      document.getElementById('avail-label').textContent = me.is_available ? '🟢 Available for work' : '🔴 Currently busy';
+    } catch {}
+
+    // Stats
+    try {
+      const s = await api('/users/stats');
+      const grid = document.getElementById('stats-grid');
+      grid.children[0].querySelector('.stat-value').textContent = s.open_jobs ?? 0;
+      grid.children[1].querySelector('.stat-value').textContent = s.active_jobs ?? 0;
+      grid.children[2].querySelector('.stat-value').textContent = s.completed_jobs ?? 0;
+      grid.children[3].querySelector('.stat-value').textContent = s.awaiting_confirm ?? 0;
+      grid.children[4].querySelector('.stat-value').textContent = `KES ${(+(s.total_earned||0)).toLocaleString()}`;
+    } catch {}
+
+    // Assigned to Me (assigned + confirmed + completed)
+    try {
+      const [assigned, confirmed, completed] = await Promise.all([
+        api('/jobs?mine=1&status=assigned'),
+        api('/jobs?mine=1&status=confirmed'),
+        api('/jobs?mine=1&status=completed')
+      ]);
+      const allJobs = [
+        ...(Array.isArray(assigned) ? assigned : []),
+        ...(Array.isArray(confirmed) ? confirmed : []),
+        ...(Array.isArray(completed) ? completed : [])
+      ];
+      
+      // Store all jobs for filtering
+      window.allMyJobs = allJobs;
+      filterJobs(); // Apply initial filter
+    } catch(e) {
+      document.getElementById('active-jobs-list').innerHTML = `<div class="form-error">Error loading jobs: ${e.message}</div>`;
+    }
+
+    // Load chart data
+    try {
+      const chartData = await api('/users/chart-data');
+      loadEarningsChart(chartData);
+    } catch (e) {
+      console.error('Chart error:', e);
+    }
+
+    // Load recommendations
+    try {
+      const recs = await api('/artisans/recommendations');
+      loadRecommendations(recs);
+    } catch (e) {
+      console.error('Recommendations error:', e);
+    }
+  }
+
+  function renderAwaitingCard(j) {
+    if (!j || !j.job_id) return '';
+    const isOverdue = isPaymentOverdue(j.created_at, j.status, j.payment_status);
+    const overdueWarning = isOverdue
+      ? `<div style="background:#fee2e2;border:1px solid #fca5a5;color:#991b1b;padding:8px;border-radius:6px;font-size:0.85rem;margin-top:8px">Payment overdue (14+ days). Contact admin if needed.</div>`
+      : '';
+    return `
+      <div class="job-card" data-job-id="${j.job_id}">
+        <div class="job-card-top">
+          <div class="job-title">${j.job_title || 'Untitled'}</div>
+          ${statusPill(j.status)}
+        </div>
+        <div class="job-meta">
+          <span class="pill pill-blue">${j.required_skill || 'General'}</span>
+          <span class="pill pill-gray">${j.job_location_name || 'Location TBA'}</span>
+        </div>
+        <div class="job-desc">${j.job_description || 'No description'}</div>
+        <div style="font-size:.8rem;color:var(--text-l);margin-top:6px">Client: ${j.client_name || 'Unknown'} • ${fmtDate(j.created_at)}</div>
+        <div style="font-size:.8rem;color:var(--text-m);margin-top:4px">Awaiting client confirmation</div>
+        ${overdueWarning}
+      </div>`;
+  }
+
+  function renderJobCard(j) {
+    if (!j || !j.job_id) return '';
+    const actions = [];
+    if (j.status === 'assigned') actions.push(`<button class="btn btn-success btn-sm" onclick="markComplete(${j.job_id})">Mark Complete</button>`);
+    if (j.status === 'confirmed') actions.push(`<button class="btn btn-primary btn-sm" onclick="openQuote(${j.job_id},'${(j.job_title||'Job').replace(/'/g,"\\'")}')">Quote Price</button>`);
+    if (j.status === 'confirmed' && j.quoted_price)
+      actions.push(`<button class="btn btn-success btn-sm" onclick="markPaid(${j.job_id})">Mark Paid</button>`);
+    const isOverdue = isPaymentOverdue(j.created_at, j.status, j.payment_status);
+    const overdueWarning = isOverdue
+      ? `<div style="background:#fee2e2;border:1px solid #fca5a5;color:#991b1b;padding:8px;border-radius:6px;font-size:0.85rem;margin-top:8px">Payment overdue. Contact admin if needed.</div>`
+      : '';
+    return `
+      <div class="job-card" data-job-id="${j.job_id}">
+        <div class="job-card-top">
+          <div class="job-title">${j.job_title || 'Untitled'}</div>
+          ${statusPill(j.status)}
+        </div>
+        <div class="job-meta">
+          <span class="pill pill-blue">${j.required_skill || 'General'}</span>
+          <span class="pill pill-gray">${j.job_location_name || 'Location TBA'}</span>
+          ${j.quoted_price ? `<span class="pill pill-green">Quoted: ${fmtMoney(j.quoted_price)}</span>` : ''}
+          ${j.payment_status === 'paid' ? '<span class="pill pill-green">Paid</span>' : ''}
+        </div>
+        <div class="job-desc">${j.job_description || 'No description'}</div>
+        <div style="font-size:.8rem;color:var(--text-l);margin-top:6px">Client: ${j.client_name || 'Unknown'} • ${fmtDate(j.created_at)}</div>
+        ${overdueWarning}
+        ${actions.length ? `<div class="job-actions">${actions.join('')}</div>` : ''}
+      </div>`;
+  }
+
+  async function markComplete(id) {
+    if (!confirm('Mark complete? Client will be notified.')) return;
+    try { await api(`/jobs/${id}/complete`, 'PUT'); toast('Marked complete!','success'); loadDashboard(); }
+    catch(e) { toast(e.message,'error'); }
+  }
+
+  function openQuote(id, title) {
+    quoteJobId = id;
+    sessionStorage.setItem('sl_qjid', id);
+    sessionStorage.setItem('sl_qjtitle', title);
+    document.getElementById('qm-title').textContent = title;
+    document.getElementById('qm-price').value = sessionStorage.getItem('sl_qprice_' + id) || '';
+    document.getElementById('qm-err').style.display='none';
+    document.getElementById('quote-modal').classList.add('open');
+  }
+  function closeQuote() { document.getElementById('quote-modal').classList.remove('open'); }
+
+  async function submitQuote() {
+    const price = document.getElementById('qm-price').value;
+    const errEl = document.getElementById('qm-err');
+    if (!price || +price <= 0) { errEl.textContent='Enter valid amount'; errEl.style.display='block'; return; }
+    sessionStorage.setItem('sl_qprice_' + quoteJobId, price);
+    try {
+      await api(`/jobs/${quoteJobId}/quote`, 'PUT', { quoted_price: +price });
+      sessionStorage.removeItem('sl_qjid');
+      sessionStorage.removeItem('sl_qjtitle');
+      sessionStorage.removeItem('sl_qprice_' + quoteJobId);
+      toast('Quote submitted!', 'success');
+      closeQuote(); loadDashboard();
+    } catch(e) { errEl.textContent = e.message; errEl.style.display='block'; }
+  }
+
+  async function markPaid(id) {
+    if (!confirm('Confirm payment received?')) return;
+    try { await api(`/jobs/${id}/payment`, 'PUT'); toast('Payment recorded!','success'); loadDashboard(); }
+    catch(e) { toast(e.message,'error'); }
+  }
+
+  loadDashboard();
+
+  document.getElementById('availability-toggle').addEventListener('change', async (e) => {
+    const val = e.target.checked ? 1 : 0;
+    try {
+      await api('/users/availability', 'PUT', { is_available: val });
+      document.getElementById('avail-label').textContent = val ? 'Available for work' : 'Currently busy';
+      toast(val ? 'You are available' : 'You are busy', 'info');
+    } catch (err) {
+      toast(err.message, 'error');
+      e.target.checked = !e.target.checked;
+    }
+  });
+
+  function filterJobs() {
+    if (!window.allMyJobs) return;
+    const filter = document.getElementById('job-filter').value;
+    let filteredJobs = [];
+    if (filter === 'active') {
+      filteredJobs = window.allMyJobs.filter(j => j.status === 'assigned' || j.status === 'confirmed');
+    } else if (filter === 'awaiting') {
+      filteredJobs = window.allMyJobs.filter(j => j.status === 'completed');
+    } else {
+      filteredJobs = window.allMyJobs;
+    }
+    const el = document.getElementById('active-jobs-list');
+    if (!filteredJobs.length) {
+      el.innerHTML = '<div class="empty-state"><p>No jobs in this category</p></div>';
+    } else {
+      el.innerHTML = '<div class="job-list">' + filteredJobs.map(j => 
+        j.status === 'completed' ? renderAwaitingCard(j) : renderJobCard(j)
+      ).join('') + '</div>';
+    }
+  }
+
+  async function loadEarningsChart(chartData) {
+    if (chartsRendered.earnings) return;
+    if (chartData.type === 'artisan' && chartData.data && chartData.data.length) {
+      chartsRendered.earnings = true;
+      document.getElementById('earnings-placeholder').style.display = 'none';
+      document.getElementById('earningsChart').style.display = 'block';
+      const ctx = document.getElementById('earningsChart').getContext('2d');
+      new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: chartData.data.map(d => d.month || 'N/A'),
+          datasets: [{
+            label: 'Earnings (KES)',
+            data: chartData.data.map(d => parseFloat(d.total) || 0),
+            borderColor: '#2E7D64',
+            backgroundColor: 'rgba(46, 125, 100, 0.1)',
+            borderWidth: 2,
+            fill: true,
+            tension: 0.4,
+            pointRadius: 4,
+            pointBackgroundColor: '#2E7D64'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: { legend: { display: true } },
+          scales: { y: { beginAtZero: true } }
+        }
+      });
+    }
+  }
+
+  function loadRecommendations(recs) {
+    const container = document.getElementById('ai-recommendations');
+    if (!recs || !recs.length) {
+      container.innerHTML = '<span class="text-muted" style="font-size:0.9rem">Complete nearby jobs to unlock recommendations</span>';
+      return;
+    }
+    container.innerHTML = recs.map(r => `<span class="pill pill-blue">${r.required_skill} (${r.count})</span>`).join('');
+  }
+
+</script>
+</body>
+</html>
