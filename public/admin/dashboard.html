@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SkillLink - Admin Dashboard</title>
+  <link rel="icon" href="/img/favicon.ico" type="image/x-icon">
   <link rel="stylesheet" href="/css/style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
@@ -24,12 +25,7 @@
   </style>
 </head>
 <body class="app-shell">
-<nav class="topnav">
-  <div class="nav-brand">Skill<span>Link</span> <span class="pill pill-red">ADMIN</span></div>
-  <div class="nav-right">
-    <button onclick="Auth.clear(); window.location.href='/index.html'" class="btn btn-outline btn-sm">Logout System</button>
-  </div>
-</nav>
+<div id="nav-container"></div>
 
 <main class="page-content">
   <div class="section-head">
@@ -37,82 +33,90 @@
       <div class="section-title">Admin Control Center</div>
       <p class="text-sm text-muted" style="margin:0">Financial performance, user oversight, disputes, and audit history in one view.</p>
     </div>
-    <button class="btn btn-outline btn-sm" onclick="loadAdminData()">Refresh dashboard</button>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <button class="btn btn-outline btn-sm" id="admin-refresh-btn" onclick="loadAdminData()">Refresh dashboard <span class="spinner" id="admin-refresh-spinner" style="display:none"></span></button>
+      <span id="last-updated" class="text-sm text-muted">Last updated: just now</span>
+    </div>
   </div>
 
   <div class="stats-panel" id="overview-stats">
     <div class="stat-item"><div class="stat-title">Total users</div><div class="stat-value">...</div></div>
     <div class="stat-item"><div class="stat-title">Total jobs</div><div class="stat-value">...</div></div>
     <div class="stat-item"><div class="stat-title">Pending verifications</div><div class="stat-value">...</div></div>
-  </div>
-
-  <div class="card mt-4">
-    <div class="section-head">
-      <div class="section-title">Financial statistics</div>
-      <div class="small-input-row">
-        <label>Start <input id="financial-start" type="date"></label>
-        <label>End <input id="financial-end" type="date"></label>
-        <button class="btn btn-outline btn-sm" onclick="loadAdminFinancialStats()">Apply</button>
-      </div>
-    </div>
-    <div class="stats-panel" id="financial-stats">
-      <div class="stat-item"><div class="stat-title">Client spending</div><div class="stat-value" id="total-client-spending">KES 0</div></div>
-      <div class="stat-item"><div class="stat-title">Artisan earnings</div><div class="stat-value" id="total-artisan-earnings">KES 0</div></div>
-      <div class="stat-item"><div class="stat-title">Platform fee</div><div class="stat-value" id="total-platform-fee">KES 0</div></div>
-      <div class="stat-item"><div class="stat-title">Jobs paid</div><div class="stat-value" id="total-jobs-paid">0</div></div>
-      <div class="stat-item"><div class="stat-title">Disputed amount</div><div class="stat-value" id="disputed-amount">KES 0</div></div>
-      <div class="stat-item"><div class="stat-title">Avg job value</div><div class="stat-value" id="average-job-value">KES 0</div></div>
-    </div>
+    <div class="stat-item"><div class="stat-title">Platform commission (fees collected)</div><div class="stat-value" id="platform-revenue">KES 0</div></div>
   </div>
 
   <div class="admin-grid mt-4">
-    <div class="card">
-      <div class="section-title">User statistics</div>
-      <div class="stats-panel" id="user-stats">
-        <div class="stat-item"><div class="stat-title">Artisans</div><div class="stat-value" id="total-artisans">0</div></div>
-        <div class="stat-item"><div class="stat-title">Clients</div><div class="stat-value" id="total-clients">0</div></div>
-        <div class="stat-item"><div class="stat-title">Verified artisans</div><div class="stat-value" id="verified-artisans">0</div></div>
-        <div class="stat-item"><div class="stat-title">Pending artisans</div><div class="stat-value" id="pending-artisans">0</div></div>
-        <div class="stat-item"><div class="stat-title">Low-rating artisans</div><div class="stat-value" id="low-rating-artisans">0</div></div>
-        <div class="stat-item"><div class="stat-title">High dispute clients</div><div class="stat-value" id="high-dispute-clients">0%</div></div>
-      </div>
-    </div>
-    <div class="card chart-card">
-      <div class="section-title">Job activity</div>
-      <canvas id="jobActivityChart" height="220"></canvas>
-      <div id="most-active-month" class="text-sm text-muted" style="margin-top:12px">Loading activity...</div>
-    </div>
-  </div>
-
-  <div class="admin-grid mt-4">
-    <div class="card chart-card">
-      <div class="section-title">Area distribution</div>
-      <canvas id="areaChart" height="220"></canvas>
-    </div>
     <div class="card">
       <div class="section-head">
-        <div class="section-title">Flagged jobs</div>
-        <button class="btn btn-outline btn-sm" onclick="loadFlaggedJobs()">Refresh</button>
+        <div>
+          <div class="section-title">All jobs</div>
+          <p class="text-sm text-muted">Filter and review every open, assigned, and completed request.</p>
+        </div>
+        <div class="small-input-row">
+          <label>Status
+            <select id="admin-job-status">
+              <option value="all">All</option>
+              <option value="open">Open</option>
+              <option value="assigned">Assigned</option>
+              <option value="completed">Completed</option>
+              <option value="confirmed">Confirmed</option>
+              <option value="closed">Closed</option>
+              <option value="disputed">Disputed</option>
+            </select>
+          </label>
+          <label>Trade
+            <select id="admin-job-skill">
+              <option value="all">All trades</option>
+              <option>Plumbing</option>
+              <option>Electrical</option>
+              <option>Masonry</option>
+              <option>Carpentry</option>
+              <option>Painting</option>
+              <option>Welding</option>
+              <option>Tiling</option>
+              <option>General Repairs</option>
+            </select>
+          </label>
+          <button class="btn btn-outline btn-sm" onclick="loadAdminJobs()">Refresh</button>
+        </div>
       </div>
       <div style="overflow-x:auto;">
         <table class="admin-table">
-          <thead><tr><th>Job</th><th>Client</th><th>Artisan</th><th>Status</th><th>Actions</th></tr></thead>
-          <tbody id="flagged-jobs-tbody"><tr><td colspan="5" class="text-center text-muted">Loading flagged jobs...</td></tr></tbody>
+          <thead><tr><th>Job</th><th>Client</th><th>Artisan</th><th>Status</th><th>Paid</th><th>Actions</th></tr></thead>
+          <tbody id="admin-jobs-body"><tr><td colspan="6" class="text-center text-muted">Loading jobs...</td></tr></tbody>
         </table>
       </div>
+      <div class="table-pagination" id="admin-jobs-pagination"></div>
+    </div>
+    <div class="card chart-card">
+      <div class="section-title">Job activity</div>
+      <canvas id="jobActivityChart" height="140"></canvas>
+      <div id="most-active-month" class="text-sm text-muted" style="margin-top:8px">Loading activity...</div>
     </div>
   </div>
 
-  <div class="admin-grid mt-4">
-    <div class="card">
-      <div class="section-head">
-        <div class="section-title">Users with warnings</div>
-        <button class="btn btn-outline btn-sm" onclick="loadUsersWithWarnings()">Refresh</button>
+  <!-- Users management -->
+  <div class="card mt-4">
+    <div class="section-head">
+      <div>
+        <div class="section-title">All accounts</div>
+        <p class="text-sm text-muted">Manage users: verify, suspend, or delete accounts.</p>
       </div>
-      <div id="warning-users-list" style="min-height:120px;padding:0 12px 12px;">
-        <p class="text-muted">Loading warning summary...</p>
+      <div>
+        <button class="btn btn-outline btn-sm" onclick="loadAdminUsers()">Refresh</button>
       </div>
     </div>
+    <div style="overflow-x:auto;">
+      <table class="admin-table">
+        <thead><tr><th>Name</th><th>Phone</th><th>Role</th><th>Verified</th><th>Actions</th></tr></thead>
+        <tbody id="admin-users-body"><tr><td colspan="5" class="text-center text-muted">Loading users...</td></tr></tbody>
+      </table>
+    </div>
+    <div class="table-pagination" id="admin-users-pagination"></div>
+  </div>
+
+  <div class="admin-grid mt-4">
     <div class="card">
       <div class="section-title">Recent audit log</div>
       <div style="overflow-x:auto;">
@@ -124,41 +128,28 @@
     </div>
   </div>
 
-  <div class="card mt-4">
-    <div class="section-head">
-      <div class="section-title">User management</div>
-      <span id="last-updated" style="font-size:0.75rem; color:var(--text-l)">Last updated: just now</span>
-    </div>
-    <div style="overflow-x: auto;">
-      <table class="admin-table">
-        <thead><tr><th>Name & Trade</th><th>Contact</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>
-        <tbody id="users-tbody"><tr><td colspan="5" class="text-center text-muted">Loading users...</td></tr></tbody>
-      </table>
-    </div>
-  </div>
-
-  <div class="card mt-4">
-    <div class="section-head">
-      <div class="section-title">Job disputes</div>
-      <button class="btn btn-outline btn-sm" onclick="loadDisputedJobs()">Refresh disputes</button>
-    </div>
-    <div style="overflow-x: auto;">
-      <table class="admin-table">
-        <thead><tr><th>Job</th><th>Client</th><th>Artisan</th><th>Status</th><th>Concern</th><th>Actions</th></tr></thead>
-        <tbody id="disputes-tbody"><tr><td colspan="6" class="text-center text-muted">Loading disputed jobs...</td></tr></tbody>
-      </table>
-    </div>
-  </div>
+  <!-- Warning summary removed to keep admin UI focused -->
 </main>
 <div id="toast"></div>
 
 <script src="/js/api.js"></script>
 <script>
   if (!Auth.check('admin')) throw '';
+  renderNav('admin');
+
+  // Admin dashboard client behaviors:
+  // - Simple, vanilla-JS rendering for tables and charts
+  // - Client-side pagination (10 items/page) to avoid complex server paging
 
   let activityChart = null;
-  let areaChart = null;
   let autoRefreshInterval = null;
+  let adminJobsData = [];
+  let adminJobsPage = 1;
+  const adminJobsPerPage = 10;
+
+  let adminUsersData = [];
+  let adminUsersPage = 1;
+  const adminUsersPerPage = 10;
 
   function updateLastRefreshTime() {
     const now = new Date();
@@ -166,23 +157,103 @@
     document.querySelectorAll('#last-updated').forEach(el => el.textContent = `Last updated: ${timeStr}`);
   }
 
+  // ---------------- Users management ----------------
+  // Load all users for admin review. This page intentionally fetches
+  // the full set and paginates client-side for simplicity.
+  async function loadAdminUsers() {
+    try {
+      const rows = await api('/admin/users');
+      adminUsersData = rows || [];
+      adminUsersPage = 1;
+      renderAdminUsersPage(adminUsersPage);
+    } catch (e) {
+      document.getElementById('admin-users-body').innerHTML = `<tr><td colspan="6" class="text-center form-error">${e.message}</td></tr>`;
+      document.getElementById('admin-users-pagination').innerHTML = '';
+    }
+  }
+
+  function renderAdminUsersPage(page) {
+    // Renders a single page of users with basic action buttons (verify/suspend/delete)
+    const tbody = document.getElementById('admin-users-body');
+    const pagRoot = document.getElementById('admin-users-pagination');
+    if (!adminUsersData || !adminUsersData.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No users found.</td></tr>';
+      pagRoot.innerHTML = '';
+      return;
+    }
+    const total = adminUsersData.length;
+    const totalPages = Math.max(1, Math.ceil(total / adminUsersPerPage));
+    page = Math.max(1, Math.min(page, totalPages));
+    adminUsersPage = page;
+    const start = (page - 1) * adminUsersPerPage;
+    const pageItems = adminUsersData.slice(start, start + adminUsersPerPage);
+    tbody.innerHTML = pageItems.map(u => `
+      <tr>
+        <td><strong>${u.name}</strong><br><span class="text-sm text-muted">${u.email || ''}</span></td>
+        <td>${u.phone || 'N/A'}</td>
+        <td>${u.role}</td>
+        <td>${u.verification_status || 'pending'}</td>
+        <td class="action-btns">
+          ${u.verification_status !== 'verified' ? `<button class="btn btn-success btn-sm" onclick="verifyUser(${u.user_id}, 'verified')">Verify</button><button class="btn btn-outline btn-sm" onclick="verifyUser(${u.user_id}, 'rejected')">Reject</button>` : `<button class="btn btn-outline btn-sm" onclick="verifyUser(${u.user_id}, 'pending')">Revoke</button>`}
+          <button class="btn btn-warn btn-sm" onclick="toggleSuspendUser(${u.user_id}, ${u.is_suspended ? 0 : 1})">${u.is_suspended ? 'Unsuspend' : 'Suspend'}</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteUser(${u.user_id})">Delete</button>
+        </td>
+      </tr>`).join('');
+
+    pagRoot.innerHTML = `
+      <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;">
+        <button class="btn btn-sm" onclick="renderAdminUsersPage(${page - 1})" ${page <= 1 ? 'disabled' : ''}>Prev</button>
+        <div class="page-info">Page ${page} of ${totalPages}  ${total} users</div>
+        <button class="btn btn-sm" onclick="renderAdminUsersPage(${page + 1})" ${page >= totalPages ? 'disabled' : ''}>Next</button>
+      </div>`;
+  }
+
+  async function verifyUser(id, status) {
+    try {
+      await api(`/admin/users/${id}/verify`, 'PUT', { verification_status: status });
+      toast('User verification updated.', 'success');
+      loadAdminUsers();
+      loadAdminData();
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  async function toggleSuspendUser(id, suspend) {
+    try {
+      await api(`/admin/users/${id}/suspend`, 'PUT', { suspend: !!suspend });
+      toast(suspend ? 'User suspended.' : 'User unsuspended.', 'info');
+      loadAdminUsers();
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  async function deleteUser(id) {
+    if (!confirm('Permanently delete this user? This cannot be undone.')) return;
+    try {
+      await api(`/admin/users/${id}`, 'DELETE');
+      toast('User deleted.', 'info');
+      loadAdminUsers();
+      loadAdminData();
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
   async function loadAdminData() {
+    const refreshBtn = document.getElementById('admin-refresh-btn');
+    const refreshSpinner = document.getElementById('admin-refresh-spinner');
+    if (refreshBtn) refreshBtn.disabled = true;
+    if (refreshSpinner) refreshSpinner.style.display = 'inline-block';
     try {
       await Promise.all([
         loadAdminOverview(),
-        loadAdminFinancialStats(),
-        loadAdminUserStats(),
         loadJobActivity(),
-        loadAreaChart(),
-        loadFlaggedJobs(),
-        loadUsersWithWarnings(),
-        loadAuditLog(),
-        loadUsersTable(),
-        loadDisputedJobs()
+        loadAdminJobs(),
+        loadAdminUsers(),
+        loadAuditLog()
       ]);
       updateLastRefreshTime();
     } catch (e) {
       toast(e.message, 'error');
+    } finally {
+      if (refreshBtn) refreshBtn.disabled = false;
+      if (refreshSpinner) refreshSpinner.style.display = 'none';
     }
   }
 
@@ -192,32 +263,7 @@
     statGrid[0].querySelector('.stat-value').textContent = stats.total_users;
     statGrid[1].querySelector('.stat-value').textContent = stats.total_jobs;
     statGrid[2].querySelector('.stat-value').textContent = stats.pending_verifications;
-  }
-
-  async function loadAdminFinancialStats() {
-    const start = document.getElementById('financial-start').value;
-    const end = document.getElementById('financial-end').value;
-    const queryParts = [];
-    if (start) queryParts.push(`start=${start}`);
-    if (end) queryParts.push(`end=${end}`);
-    const query = queryParts.join('&');
-    const stats = await api(`/admin/financial-stats${query ? `?${query}` : ''}`);
-    document.getElementById('total-client-spending').textContent = `KES ${(+stats.total_client_spending).toLocaleString()}`;
-    document.getElementById('total-artisan-earnings').textContent = `KES ${(+stats.total_artisan_earnings).toLocaleString()}`;
-    document.getElementById('total-platform-fee').textContent = `KES ${(+stats.total_platform_fee).toLocaleString()}`;
-    document.getElementById('total-jobs-paid').textContent = stats.total_jobs_paid;
-    document.getElementById('disputed-amount').textContent = `KES ${(+stats.disputed_amount).toLocaleString()}`;
-    document.getElementById('average-job-value').textContent = `KES ${(+stats.average_job_value).toLocaleString()}`;
-  }
-
-  async function loadAdminUserStats() {
-    const stats = await api('/admin/user-stats');
-    document.getElementById('total-artisans').textContent = stats.total_artisans;
-    document.getElementById('total-clients').textContent = stats.total_clients;
-    document.getElementById('verified-artisans').textContent = stats.verified_artisans;
-    document.getElementById('pending-artisans').textContent = stats.pending_artisans;
-    document.getElementById('low-rating-artisans').textContent = stats.artisans_with_low_rating;
-    document.getElementById('high-dispute-clients').textContent = `${stats.clients_with_high_dispute_rate}%`;
+    document.getElementById('platform-revenue').textContent = `KES ${(+stats.platform_revenue || 0).toLocaleString()}`;
   }
 
   async function loadJobActivity() {
@@ -239,89 +285,14 @@
         responsive: true,
         maintainAspectRatio: true,
         plugins: { legend: { display: false } },
-        scales: { y: { beginAtZero: true } }
+        scales: { y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } } }
       }
     });
     const monthLabel = data.most_active_month?.month ? `${data.most_active_month.month} (${data.most_active_month.count})` : 'No data yet';
     document.getElementById('most-active-month').textContent = `Most active month: ${monthLabel}`;
   }
 
-  async function loadAreaChart() {
-    try {
-      const areas = await api('/admin/jobs-by-area');
-      const chartEl = document.getElementById('areaChart');
-      if (areaChart) {
-        areaChart.destroy();
-        areaChart = null;
-      }
-      if (!areas || !areas.length) {
-        chartEl.style.display = 'none';
-        const msg = chartEl.parentElement.querySelector('.no-data-message');
-        if (!msg) {
-          chartEl.parentElement.insertAdjacentHTML('beforeend', '<div class="no-data-message">No area distribution data to display yet.</div>');
-        }
-        return;
-      }
-      chartEl.style.display = 'block';
-      const existingMsg = chartEl.parentElement.querySelector('.no-data-message');
-      if (existingMsg) existingMsg.remove();
-      const colors = ['#0F3B3D', '#E8A87C', '#C38D9E', '#2E7D64', '#BC4A3C', '#D98C2B', '#8A9E9E', '#5B7A7A', '#D4A574', '#9B6B5A'];
-      const ctx = chartEl.getContext('2d');
-      areaChart = new Chart(ctx, {
-        type: 'pie',
-        data: {
-          labels: areas.map(a => a.area),
-          datasets: [{
-            data: areas.map(a => a.count),
-            backgroundColor: colors.slice(0, areas.length)
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: true,
-          plugins: {
-            legend: { position: 'bottom' }
-          }
-        }
-      });
-    } catch (e) {
-      console.error('Area chart error:', e);
-    }
-  }
-
-  async function loadFlaggedJobs() {
-    const rows = await api('/admin/flagged-jobs');
-    const tbody = document.getElementById('flagged-jobs-tbody');
-    if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No flagged jobs.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = rows.map(job => `
-      <tr>
-        <td><strong>${job.job_title}</strong></td>
-        <td>${job.client_name || 'N/A'}</td>
-        <td>${job.artisan_name || 'Unassigned'}</td>
-        <td>${statusPill(job.status)}</td>
-        <td class="action-btns">
-          <button class="btn btn-outline btn-sm" onclick="unflagJob(${job.job_id})">Unflag</button>
-          <button class="btn btn-danger btn-sm" onclick="deleteFlaggedJob(${job.job_id})">Delete</button>
-        </td>
-      </tr>`).join('');
-  }
-
-  async function loadUsersWithWarnings() {
-    const rows = await api('/admin/users-with-warnings');
-    const list = document.getElementById('warning-users-list');
-    if (!rows.length) {
-      list.innerHTML = '<p class="text-muted">No users currently have warnings.</p>';
-      return;
-    }
-    list.innerHTML = rows.map(user => `
-      <div style="padding:10px 0; border-bottom:1px solid var(--border);">
-        <strong>${user.name}</strong> (${user.role})<br>
-        <span class="text-sm text-muted">Warnings: ${user.warning_count}</span>
-      </div>`).join('');
-  }
+  
 
   async function loadAuditLog() {
     const entries = await api('/admin/audit-log');
@@ -340,109 +311,65 @@
       </tr>`).join('');
   }
 
-  async function loadUsersTable() {
-    const users = await api('/admin/users');
-    const tbody = document.getElementById('users-tbody');
-    if (!users.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No active users in the system.</td></tr>';
+  
+
+  async function loadAdminJobs() {
+    try {
+      const status = document.getElementById('admin-job-status').value;
+      const skill = document.getElementById('admin-job-skill').value;
+      const rows = await api(`/admin/jobs?status=${encodeURIComponent(status)}&skill=${encodeURIComponent(skill)}`);
+      adminJobsData = rows || [];
+      adminJobsPage = 1;
+      renderAdminJobsPage(adminJobsPage);
+    } catch (e) {
+      document.getElementById('admin-jobs-body').innerHTML = `<tr><td colspan="6" class="text-center form-error">${e.message}</td></tr>`;
+      document.getElementById('admin-jobs-pagination').innerHTML = '';
+    }
+  }
+
+  function renderAdminJobsPage(page) {
+    const tbody = document.getElementById('admin-jobs-body');
+    const pagRoot = document.getElementById('admin-jobs-pagination');
+    if (!adminJobsData || !adminJobsData.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No jobs match this filter.</td></tr>';
+      pagRoot.innerHTML = '';
       return;
     }
-    tbody.innerHTML = users.map(u => {
-      const statusCell = u.role === 'client' ? '–' : statusPill(u.verification_status || 'pending');
-      const actionBtns = u.role === 'artisan'
-        ? `${u.verification_status !== 'verified' ? `<button class="btn btn-success btn-sm" onclick="verifyUser(${u.user_id}, 'verified')">Approve</button>` : ''}
-           ${u.verification_status !== 'rejected' ? `<button class="btn btn-warn btn-sm" onclick="verifyUser(${u.user_id}, 'rejected')">Reject</button>` : ''}`
-        : '';
-      return `
-        <tr>
-          <td><strong>${u.name}</strong><br><span class="text-sm text-muted">${u.trade || '–'}</span></td>
-          <td>${u.phone}</td>
-          <td><span class="pill pill-gray">${u.role}</span></td>
-          <td>${statusCell}</td>
-          <td>
-            <div class="action-btns">
-              ${actionBtns}
-              <button class="btn btn-danger btn-sm" onclick="deleteUser(${u.user_id})">Delete</button>
-            </div>
-          </td>
-        </tr>`;
-    }).join('');
+    const total = adminJobsData.length;
+    const totalPages = Math.max(1, Math.ceil(total / adminJobsPerPage));
+    page = Math.max(1, Math.min(page, totalPages));
+    adminJobsPage = page;
+    const start = (page - 1) * adminJobsPerPage;
+    const pageItems = adminJobsData.slice(start, start + adminJobsPerPage);
+    tbody.innerHTML = pageItems.map(job => `
+      <tr>
+        <td><strong>${job.job_title}</strong><br><span class="text-sm text-muted">${job.required_skill}</span></td>
+        <td>${job.client_name || 'N/A'}</td>
+        <td>${job.artisan_name || 'Unassigned'}</td>
+        <td>${statusPill(job.status)}</td>
+        <td>${job.payment_status === 'paid' ? 'Yes' : 'No'}</td>
+        <td class="action-btns">
+          <button class="btn btn-outline btn-sm" onclick="deleteAdminJob(${job.job_id})">Delete</button>
+        </td>
+      </tr>`).join('');
+
+    pagRoot.innerHTML = `
+      <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;">
+        <button class="btn btn-sm" onclick="renderAdminJobsPage(${page - 1})" ${page <= 1 ? 'disabled' : ''}>Prev</button>
+        <div class="page-info">Page ${page} of ${totalPages}  ${total} jobs</div>
+        <button class="btn btn-sm" onclick="renderAdminJobsPage(${page + 1})" ${page >= totalPages ? 'disabled' : ''}>Next</button>
+      </div>`;
   }
 
-  async function unflagJob(id) {
-    if (!confirm('Remove flag from this job?')) return;
-    await api(`/admin/jobs/${id}/unflag`, 'POST');
-    toast('Job unflagged.', 'success');
-    loadFlaggedJobs();
-  }
-
-  async function deleteFlaggedJob(id) {
-    if (!confirm('Permanently delete this flagged job? This cannot be undone.')) return;
-    await api(`/admin/jobs/${id}/delete`, 'POST');
-    toast('Flagged job deleted.', 'info');
-    loadFlaggedJobs();
-  }
-
-  async function verifyUser(id, status) {
-    if (!confirm(`Are you sure you want to mark this account as ${status.toUpperCase()}?`)) return;
-    await api(`/admin/users/${id}/verify`, 'PUT', { verification_status: status });
-    toast(`User successfully marked as ${status}`, 'success');
-    loadUsersTable();
-  }
-
-  async function deleteUser(id) {
-    if (!confirm('WARNING: Permanently delete this user and all their associated jobs? This cannot be undone.')) return;
-    await api(`/admin/users/${id}`, 'DELETE');
-    toast('User purged from the system.', 'info');
-    loadUsersTable();
-  }
-
-  async function loadDisputedJobs() {
+  async function deleteAdminJob(id) {
+    if (!confirm('Delete this job from the system? This action cannot be undone.')) return;
     try {
-      const jobs = await api('/admin/disputes');
-      const tbody = document.getElementById('disputes-tbody');
-      if (!jobs.length) {
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No disputed jobs.</td></tr>';
-        return;
-      }
-      tbody.innerHTML = jobs.map(j => `
-        <tr>
-          <td><strong>${j.job_title}</strong><br><span class="text-sm text-muted">${fmtDate(j.created_at)}</span></td>
-          <td>${j.client_name || 'N/A'}<br><span class="text-sm text-muted">${j.client_phone || ''}</span></td>
-          <td><strong>${j.artisan_name || 'Unassigned'}</strong><br><span class="text-sm text-muted">${j.artisan_phone || ''}</span></td>
-          <td>${statusPill(j.status)}</td>
-          <td><button class="btn btn-outline btn-sm" onclick="viewConcern(${j.job_id})">View Concern</button></td>
-          <td>
-            <div class="action-btns">
-              <button class="btn btn-success btn-sm" onclick="resolveDisputeFavor(${j.job_id},'client')">Favor Client</button>
-              <button class="btn btn-primary btn-sm" onclick="resolveDisputeFavor(${j.job_id},'artisan')">Favor Artisan</button>
-            </div>
-          </td>
-        </tr>`).join('');
+      await api(`/admin/jobs/${id}/delete`, 'POST');
+      toast('Job deleted.', 'info');
+      loadAdminJobs();
     } catch (e) {
-      document.getElementById('disputes-tbody').innerHTML = `<tr><td colspan="6" class="text-center form-error">${e.message}</td></tr>`;
+      toast(e.message, 'error');
     }
-  }
-
-  async function viewConcern(jobId) {
-    try {
-      const responses = await api(`/jobs/${jobId}/concerns`);
-      let concernText = 'No concern raised by artisan yet.';
-      if (responses && responses.length > 0) {
-        const date = new Date(responses[0].created_at).toLocaleString();
-        concernText = `From: ${responses[0].name}\nDate: ${date}\n\nMessage:\n${responses[0].message}`;
-      }
-      alert(`Artisan's Concern:\n\n${concernText}`);
-    } catch (e) {
-      toast('Failed to load concern: ' + e.message, 'error');
-    }
-  }
-
-  async function resolveDisputeFavor(id, favor) {
-    if (!confirm(`Resolve dispute in favor of ${favor}? This action is final.`)) return;
-    await api(`/admin/jobs/${id}/resolve`, 'PUT', { favor });
-    toast(`Dispute resolved — ${favor} favored.`, 'success');
-    loadDisputedJobs();
   }
 
   // Initialize dashboard

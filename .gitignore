@@ -11,6 +11,9 @@ yarn-error.log
 package-lock.json
 yarn.lock
 
-# Markdown files (optional – only if you don't want them tracked)
+# Markdown files: ignore all, but keep `personal_summary.md` only
 *.md
-!README.md   # keep README if needed
+!personal_summary.md
+
+# Keep tests local (untracked)
+tests/

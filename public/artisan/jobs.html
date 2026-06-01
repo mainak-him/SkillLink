@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SkillLink – Browse Jobs</title>
+  <link rel="icon" href="/img/favicon.ico" type="image/x-icon">
   <link rel="stylesheet" href="/css/style.css">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
@@ -180,10 +181,7 @@
   }
 
   // Restore quote modal if page was refreshed mid-quote
-  quoteJobId = sessionStorage.getItem('sl_qjid') ? +sessionStorage.getItem('sl_qjid') : null;
-  if (quoteJobId) {
-    setTimeout(() => openQuote(quoteJobId, sessionStorage.getItem('sl_qjtitle') || 'Job'), 1500);
-  }
+  // Removed sessionStorage restore for simplicity  modal state kept in-memory
 
   // Detect location & load user availability
   (async () => {
@@ -261,7 +259,7 @@
   function renderOpenJob(j) {
     const dist = j.distance_km != null ? `<span class="pill pill-gray">${j.distance_km} km away</span>` : '';
     const budget = (j.budget_min||j.budget_max) ? `<span class="pill pill-orange">KES ${(+j.budget_min).toLocaleString()}–${(+j.budget_max).toLocaleString()}</span>` : '';
-    const emergencyBadge = j.is_emergency ? '<span class="pill pill-red">🚨 URGENT</span>' : '';
+    const emergencyBadge = j.is_emergency ? '<span class="pill pill-red">Urgent</span>' : '';
     const acceptButton = userIsAvailable ? `<button class="btn btn-success btn-sm" onclick="acceptJob(${j.job_id})">Accept Job</button>` : '<span class="pill pill-gray">Unavailable</span>';
     return `
       <div class="job-card" data-job-id="${j.job_id}">
@@ -315,7 +313,7 @@
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap contributors', maxZoom: 18
     }).addTo(leafMap);
-    L.circleMarker([myLat, myLng], { radius:10, fillColor:'#f59e0b', color:'#fff', fillOpacity:1, weight:2 })
+    L.circleMarker([myLat, myLng], { radius:10, fillColor:'#0284C7', color:'#fff', fillOpacity:1, weight:2 })
       .addTo(leafMap).bindPopup('Your location');
     refreshMapMarkers();
   }
@@ -367,12 +365,11 @@
   }
 
   function openQuote(id, title) {
+    // Keep quote modal state in memory only; avoids stale data across tabs
     quoteJobId = id;
-    sessionStorage.setItem('sl_qjid', id);
-    sessionStorage.setItem('sl_qjtitle', title);
     document.getElementById('qm-title').textContent = title;
-    document.getElementById('qm-price').value = sessionStorage.getItem('sl_qprice_' + id) || '';
-    document.getElementById('qm-err').style.display='none';
+    document.getElementById('qm-price').value = '';
+    document.getElementById('qm-err').style.display = 'none';
     document.getElementById('quote-modal').classList.add('open');
   }
 
@@ -380,12 +377,9 @@
     const price = document.getElementById('qm-price').value;
     const errEl = document.getElementById('qm-err');
     if (!price||+price<=0) { errEl.textContent='Enter a valid amount.'; errEl.style.display='block'; return; }
-    sessionStorage.setItem('sl_qprice_' + quoteJobId, price);
     try {
       await api(`/jobs/${quoteJobId}/quote`, 'PUT', { quoted_price:+price });
-      sessionStorage.removeItem('sl_qjid');
-      sessionStorage.removeItem('sl_qjtitle');
-      sessionStorage.removeItem('sl_qprice_' + quoteJobId);
+      // no persisted state to clear
       toast('Quote submitted!','success');
       document.getElementById('quote-modal').classList.remove('open');
       loadMyJobs();

@@ -45,10 +45,10 @@
     </select>
     <button class="btn btn-outline btn-sm" onclick="loadArtisans()">Refresh</button>
   </div>
-  <div class="distance-note">📍 Artisans are sorted by distance to your location – calculations may take a few seconds.</div>
+  <div class="distance-note">Artisans are sorted by distance to your location. Distance calculations may take a few seconds.</div>
 
   <div id="list-container">
-    <div id="artisans-list"><div class="text-muted">📍 Finding nearby verified artisans using GPS distances...</div></div>
+    <div id="artisans-list"><div class="text-muted">Finding nearby verified artisans using GPS distances...</div></div>
   </div>
 
   <div id="map-container" class="card">
@@ -104,7 +104,7 @@
   async function loadArtisans() {
     const skill = document.getElementById('filter-skill').value;
     const el = document.getElementById('artisans-list');
-    el.innerHTML = '<div class="text-muted">📍 Finding nearby verified artisans using GPS distances...</div>';
+    el.innerHTML = '<div class="text-muted">Finding nearby verified artisans using GPS distances...</div>';
     
     try {
       allArtisans = await api(`/artisans?skill=${skill}&lat=${myLat}&lng=${myLng}`);

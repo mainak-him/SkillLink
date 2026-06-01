@@ -282,6 +282,10 @@ async function seed() {
   }
   console.log(`✓ Inserted ${jobs.length} jobs`);
 
+  // Add simple payment references for paid jobs to reflect recorded payments
+  await conn.execute(`UPDATE jobs SET payment_reference = CONCAT('MPESA', LPAD(job_id,6,'0')) WHERE payment_status='paid' AND (payment_reference IS NULL OR payment_reference='')`);
+  console.log('✓ Added payment references for paid jobs');
+
   // ======================== RATINGS (varied) ========================
   const closedJobs = await conn.execute(`SELECT job_id, client_id, assigned_artisan_id FROM jobs WHERE status='closed' AND assigned_artisan_id IS NOT NULL`);
   const ratingComments = [

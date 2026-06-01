@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SkillLink - Client Dashboard</title>
+  <link rel="icon" href="/img/favicon.ico" type="image/x-icon">
   <link rel="stylesheet" href="/css/style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
@@ -73,10 +74,15 @@
 <script>
   if (!Auth.check('client')) throw '';
   renderNav('client');
+  // Client dashboard: simple vanilla-JS rendering and client-side pagination
+  // Keep widgets minimal for a student project  charts use Chart.js CDN only
   const user = Auth.user();
   let chartsRendered = { skills: false };
+  let clientJobsPage = 1;
+  const clientJobsPerPage = 10;
 
   async function loadClientDashboard() {
+    // Load profile summary and small stats; errors are intentionally non-fatal
     try {
       const me = await api('/users/me');
       Auth.save(Auth.token(), { ...user, ...me });
@@ -128,7 +134,7 @@
             responsive: true,
             maintainAspectRatio: true,
             plugins: { legend: { display: false } },
-            scales: { y: { beginAtZero: true } }
+            scales: { y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } } }
           }
         });
       }
@@ -157,20 +163,33 @@
     const el = document.getElementById('client-jobs-list');
     if (!filteredJobs.length) {
       el.innerHTML = '<div class="empty-state"><p>No jobs match this filter</p></div>';
-    } else {
-      el.innerHTML = '<div class="job-list">' + filteredJobs.map(j => `
-        <div class="job-card" data-job-id="${j.job_id}">
-          <div class="job-card-top">
-            <div class="job-title">${j.job_title}</div>
-            ${statusPill(j.status)}
-          </div>
-          <div class="job-meta">
-            <span class="pill pill-blue">${j.required_skill}</span>
-            <span class="pill pill-gray">${fmtDate(j.created_at)}</span>
-          </div>
-        </div>
-      `).join('') + '</div>';
+      return;
     }
+    const total = filteredJobs.length;
+    const totalPages = Math.max(1, Math.ceil(total / clientJobsPerPage));
+    clientJobsPage = Math.max(1, Math.min(clientJobsPage, totalPages));
+    const start = (clientJobsPage - 1) * clientJobsPerPage;
+    const pageItems = filteredJobs.slice(start, start + clientJobsPerPage);
+    el.innerHTML = '<div class="job-list">' + pageItems.map(j => `
+      <div class="job-card" data-job-id="${j.job_id}">
+        <div class="job-card-top">
+          <div class="job-title">${j.job_title}</div>
+          ${statusPill(j.status)}
+        </div>
+        <div class="job-meta">
+          <span class="pill pill-blue">${j.required_skill}</span>
+          <span class="pill pill-gray">${fmtDate(j.created_at)}</span>
+        </div>
+      </div>
+    `).join('') + '</div>';
+      el.innerHTML += `<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;align-items:center">
+        <button class="btn btn-sm" onclick="setClientJobsPage(${clientJobsPage - 1})" ${clientJobsPage<=1? 'disabled':''}>Prev</button>
+        <div class="page-info">Page ${clientJobsPage} of ${totalPages}  ${total} jobs</div>
+        <button class="btn btn-sm" onclick="setClientJobsPage(${clientJobsPage + 1})" ${clientJobsPage>=totalPages? 'disabled':''}>Next</button>
+      </div>`;
+    }
+
+  function setClientJobsPage(p) { clientJobsPage = p; filterClientJobs(); }
   }
 </script>
 </body>

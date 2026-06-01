@@ -14,6 +14,11 @@ const PORT   = process.env.PORT || 3000;
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
+// NOTE: This file uses plain Express with minimal helpers.
+// It's intentionally simple for teaching/demo purposes (2nd year project).
+// The sections below are grouped: auth, user/profile, jobs, admin, etc.
+// Read the comments above each section to understand purpose and simple constraints.
+
 // ── Helper: Kenyan phone validation ─────────────────────────
 function isValidKenyanPhone(phone) {
   return /^(07|01)[0-9]{8}$/.test(phone);
@@ -42,6 +47,9 @@ const upload = multer({
 });
 
 // ── Auth middleware ─────────────────────────────────────────
+// `auth` middleware: verifies the JWT token (Authorization: Bearer <token>)
+// If valid, `req.user` will contain the token payload (user_id, role, name).
+// Keeps failure responses simple and consistent.
 function auth(req, res, next) {
   const header = req.headers.authorization || '';
   const token  = header.startsWith('Bearer ') ? header.slice(7) : null;
@@ -53,17 +61,23 @@ function auth(req, res, next) {
 }
 
 function role(...roles) {
+  // `role` middleware factory: use as `role('admin')` or `role('artisan','client')`
+  // It expects `auth` to have already populated `req.user`.
   return (req, res, next) => {
-    if (!roles.includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
+    if (!req.user || !roles.includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
     next();
   };
 }
 
 // Haversine distance (km)
+// Haversine formula – returns approximate distance in kilometers between two coords.
+// Kept here for simple proximity sorting on the client (no external geo libs).
 function haversine(lat1, lng1, lat2, lng2) {
-  const R = 6371, toRad = d => d * Math.PI / 180;
-  const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
-  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng/2)**2;
+  const R = 6371; // Earth radius km
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
@@ -94,6 +108,7 @@ app.post('/api/auth/login', async (req, res) => {
     const [rows] = await db.query('SELECT * FROM users WHERE phone=? OR email=?', [phone, phone]);
     if (!rows.length) return res.status(401).json({ error: 'No account found with that phone/email.' });
     const user = rows[0];
+    if (user.is_suspended) return res.status(403).json({ error: 'Account suspended. Contact support.' });
     const ok   = await bcrypt.compare(password, user.password);
     if (!ok) return res.status(401).json({ error: 'Incorrect password.' });
     const token = jwt.sign({ user_id: user.user_id, role: user.role, name: user.name }, SECRET, { expiresIn: '7d' });
@@ -454,20 +469,45 @@ app.put('/api/jobs/:id/dispute', auth, role('client'), async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.put('/api/jobs/:id/payment', auth, role('artisan'), async (req, res) => {
+app.put('/api/jobs/:id/payment', auth, async (req, res) => {
   try {
-    const [rows] = await db.query('SELECT * FROM jobs WHERE job_id=? AND assigned_artisan_id=?', [req.params.id, req.user.user_id]);
+    const [rows] = await db.query('SELECT * FROM jobs WHERE job_id=?', [req.params.id]);
     if (!rows.length) return res.status(404).json({ error: 'Job not found.' });
-    if (rows[0].status !== 'confirmed') return res.status(400).json({ error: 'Payment can only be recorded after the job is confirmed and quoted.' });
-    if (rows[0].payment_status === 'paid') return res.status(400).json({ error: 'Payment is already recorded for this job.' });
-    if (!rows[0].quoted_price) return res.status(400).json({ error: 'Please quote a price before marking payment.' });
+    const job = rows[0];
+    if (job.status !== 'confirmed') return res.status(400).json({ error: 'Payment can only be recorded after the job is confirmed and quoted.' });
+    if (job.payment_status === 'paid') return res.status(400).json({ error: 'Payment is already recorded for this job.' });
+    if (!job.quoted_price) return res.status(400).json({ error: 'Please quote a price before recording payment.' });
+
+    const isClient = req.user.role === 'client' && req.user.user_id === job.client_id;
+    const isArtisan = req.user.role === 'artisan' && req.user.user_id === job.assigned_artisan_id;
+    if (!isClient && !isArtisan) return res.status(403).json({ error: 'Only the client or assigned artisan can update payment status.' });
+
+    const payment_reference = req.body && typeof req.body.payment_reference !== 'undefined' ? req.body.payment_reference : null;
+    if (isClient && (!payment_reference || !String(payment_reference).trim())) {
+      return res.status(400).json({ error: 'Payment reference is required from the client.' });
+    }
+
     const [[setting]] = await db.query('SELECT setting_value FROM admin_settings WHERE setting_key=?', ['commission_percent']);
     const commissionPercent = setting && setting.setting_value ? parseFloat(setting.setting_value) : 5;
-    const platformFee = parseFloat(((rows[0].quoted_price || 0) * commissionPercent / 100).toFixed(2));
-    await db.query("UPDATE jobs SET payment_status='paid', status='closed', platform_fee=? WHERE job_id=?", [platformFee, req.params.id]);
+    const multiplier = job.is_emergency ? 1.2 : 1;
+    const platformFee = parseFloat(((job.quoted_price || 0) * commissionPercent / 100 * multiplier).toFixed(2));
+
+    await db.query(
+      "UPDATE jobs SET payment_status='paid', status='closed', platform_fee=?, payment_reference=? WHERE job_id=?",
+      [platformFee, payment_reference || job.payment_reference || null, req.params.id]
+    );
+
+    const note = isClient
+      ? `Client confirmed payment for "${job.job_title}".${payment_reference ? ' Ref: ' + payment_reference : ''}`
+      : `Artisan recorded payment for "${job.job_title}".`;
+
     await db.query('INSERT INTO notifications (user_id,message,type,related_job_id) VALUES (?,?,?,?)',
-      [rows[0].client_id, `Payment of KES ${(+rows[0].quoted_price).toLocaleString()} received for "${rows[0].job_title}". Job closed.`, 'payment_received', rows[0].job_id]);
-    res.json({ message: 'Payment marked. Job closed.' });
+      [job.assigned_artisan_id || job.client_id, note, 'payment_received', job.job_id]);
+    if (job.client_id && job.client_id !== req.user.user_id) {
+      await db.query('INSERT INTO notifications (user_id,message,type,related_job_id) VALUES (?,?,?,?)',
+        [job.client_id, `Payment recorded for "${job.job_title}".`, 'payment_received', job.job_id]);
+    }
+    res.json({ message: 'Payment recorded. Job closed.' });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -485,7 +525,7 @@ app.delete('/api/jobs/:id', auth, role('client'), async (req, res) => {
 app.get('/api/notifications', auth, async (req, res) => {
   try {
     const [rows] = await db.query(
-      'SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 30',
+      'SELECT n.*, j.job_title FROM notifications n LEFT JOIN jobs j ON n.related_job_id = j.job_id WHERE n.user_id=? ORDER BY n.created_at DESC LIMIT 30',
       [req.user.user_id]);
     const [[{ unread }]] = await db.query(
       'SELECT COUNT(*) AS unread FROM notifications WHERE user_id=? AND is_read=0', [req.user.user_id]);
@@ -526,10 +566,12 @@ app.get('/api/admin/dashboard', auth, role('admin'), async (req, res) => {
     const [[usersCount]] = await db.query('SELECT COUNT(*) AS total_users FROM users');
     const [[jobsCount]]  = await db.query('SELECT COUNT(*) AS total_jobs FROM jobs');
     const [[pending]]    = await db.query("SELECT COUNT(*) AS pending_verifications FROM users WHERE verification_status='pending'");
+    const [[revenue]]   = await db.query("SELECT IFNULL(SUM(platform_fee),0) AS platform_revenue FROM jobs WHERE payment_status='paid'");
     res.json({
       total_users: usersCount.total_users,
       total_jobs: jobsCount.total_jobs,
-      pending_verifications: pending.pending_verifications
+      pending_verifications: pending.pending_verifications,
+      platform_revenue: revenue.platform_revenue || 0
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -541,6 +583,24 @@ app.get('/api/admin/users', auth, role('admin'), async (req, res) => {
        FROM users WHERE role!=? ORDER BY created_at DESC`,
       ['admin']
     );
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/admin/jobs', auth, role('admin'), async (req, res) => {
+  try {
+    const { status, skill, emergency } = req.query;
+    let sql = `SELECT j.*, u1.name AS client_name, u1.phone AS client_phone, u2.name AS artisan_name, u2.phone AS artisan_phone
+               FROM jobs j
+               LEFT JOIN users u1 ON j.client_id=u1.user_id
+               LEFT JOIN users u2 ON j.assigned_artisan_id=u2.user_id
+               WHERE 1=1`;
+    const params = [];
+    if (status && status !== 'all') { sql += ' AND j.status=?'; params.push(status); }
+    if (skill && skill !== 'all') { sql += ' AND j.required_skill=?'; params.push(skill); }
+    if (emergency === '1') { sql += ' AND j.is_emergency=1'; }
+    sql += ' ORDER BY j.is_emergency DESC, j.created_at DESC';
+    const [rows] = await db.query(sql, params);
     res.json(rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -810,20 +870,34 @@ app.put('/api/admin/users/:id/verify', auth, role('admin'), async (req, res) => 
     if (!['verified','rejected','pending'].includes(verification_status)) {
       return res.status(400).json({ error: 'Invalid verification status.' });
     }
-    const [rows] = await db.query('SELECT user_id FROM users WHERE user_id=? AND role!=?', [req.params.id, 'admin']);
+    const [rows] = await db.query('SELECT user_id, name FROM users WHERE user_id=? AND role!=?', [req.params.id, 'admin']);
     if (!rows.length) return res.status(404).json({ error: 'User not found.' });
     await db.query('UPDATE users SET verification_status=? WHERE user_id=?', [verification_status, req.params.id]);
+    await logAdminAction(req.user.user_id, 'verify_user', 'user', req.params.id, `Set verification_status=${verification_status} for ${rows[0].name}`);
     res.json({ message: 'Verification status updated.' });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.delete('/api/admin/users/:id', auth, role('admin'), async (req, res) => {
   try {
-    const [rows] = await db.query('SELECT user_id, role FROM users WHERE user_id=?', [req.params.id]);
+    const [rows] = await db.query('SELECT user_id, role, name FROM users WHERE user_id=?', [req.params.id]);
     if (!rows.length) return res.status(404).json({ error: 'User not found.' });
     if (rows[0].role === 'admin') return res.status(403).json({ error: 'Cannot delete another admin.' });
     await db.query('DELETE FROM users WHERE user_id=?', [req.params.id]);
+    await logAdminAction(req.user.user_id, 'delete_user', 'user', req.params.id, `Deleted user ${rows[0].name} (${rows[0].role})`);
     res.json({ message: 'User deleted.' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/admin/users/:id/suspend', auth, role('admin'), async (req, res) => {
+  try {
+    const suspend = req.body && req.body.suspend ? 1 : 0;
+    const [rows] = await db.query('SELECT user_id, name, role FROM users WHERE user_id=?', [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: 'User not found.' });
+    if (rows[0].role === 'admin') return res.status(403).json({ error: 'Cannot suspend another admin.' });
+    await db.query('UPDATE users SET is_suspended=? WHERE user_id=?', [suspend, req.params.id]);
+    await logAdminAction(req.user.user_id, suspend ? 'suspend_user' : 'unsuspend_user', 'user', req.params.id, `${suspend ? 'Suspended' : 'Unsuspended'} ${rows[0].name}`);
+    res.json({ message: suspend ? 'User suspended.' : 'User unsuspended.' });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -835,6 +909,7 @@ app.put('/api/admin/jobs/:id/resolve', auth, role('admin'), async (req, res) => 
     if (!rows.length) return res.status(404).json({ error: 'Job not found.' });
     if (rows[0].status !== 'disputed') return res.status(400).json({ error: 'Job must be disputed to resolve.' });
     await db.query("UPDATE jobs SET status='closed', dispute_resolved_favor=? WHERE job_id=?", [favor, req.params.id]);
+    await logAdminAction(req.user.user_id, 'resolve_dispute', 'job', req.params.id, `Resolved dispute in favor of ${favor} for ${rows[0].job_title}`);
     if (rows[0].assigned_artisan_id) {
       await db.query('INSERT INTO notifications (user_id,message,type,related_job_id) VALUES (?,?,?,?)',
         [rows[0].assigned_artisan_id, `Admin resolved dispute for "${rows[0].job_title}" in favor of ${favor}.`, 'dispute_resolved', rows[0].job_id]);
@@ -1036,6 +1111,14 @@ app.delete('/api/users/me', auth, async (req, res) => {
   }
 });
 
-// ── Catch-all → login ──────────────────────────────────────
+// ── Global error handler (fallback for unexpected errors)
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err && (err.stack || err));
+  if (res.headersSent) return next(err);
+  res.status(err && err.status ? err.status : 500).json({ error: err && err.message ? err.message : 'Internal server error' });
+});
+
+// ── Catch-all → serve SPA login
 app.use((_, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+
 app.listen(PORT, () => console.log(`✅ SkillLink running at http://localhost:${PORT}`));

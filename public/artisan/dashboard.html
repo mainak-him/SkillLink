@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SkillLink – Artisan Dashboard</title>
+  <link rel="icon" href="/img/favicon.ico" type="image/x-icon">
   <link rel="stylesheet" href="/css/style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
@@ -64,12 +65,13 @@
   <div class="card mt-4">
     <div class="section-head">
       <div class="section-title">My Jobs</div>
-      <div style="display:flex;gap:8px;align-items:center">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <select id="job-filter" onchange="filterJobs()" style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.9rem">
           <option value="active">Active Jobs</option>
           <option value="awaiting">Awaiting Confirmation</option>
           <option value="all">All Jobs</option>
         </select>
+        <button class="btn btn-outline btn-sm" onclick="filterByMyTrade()">Filter by my trade</button>
         <a href="/artisan/jobs.html" class="btn btn-outline btn-sm">Browse jobs</a>
       </div>
     </div>
@@ -106,11 +108,10 @@
   const user = Auth.user();
   let quoteJobId = null;
   let chartsRendered = { earnings: false };
-
-  quoteJobId = sessionStorage.getItem('sl_qjid') ? +sessionStorage.getItem('sl_qjid') : null;
-  if (quoteJobId) {
-    setTimeout(() => openQuote(quoteJobId, sessionStorage.getItem('sl_qjtitle') || 'Job'), 1500);
-  }
+  let myJobsPage = 1;
+  const myJobsPerPage = 10;
+  // Removed sessionStorage persistence for the quote modal to keep logic simple.
+  // Quotes are handled in-memory during the session; this avoids leftover state across tabs.
 
   async function loadDashboard() {
     // Profile
@@ -120,13 +121,14 @@
       document.getElementById('welcome-name').textContent = `Welcome, ${me.name.split(' ')[0]}!`;
       document.getElementById('profile-pic').src = avatarSrc(me.profile_pic);
       document.getElementById('trade-label').textContent = me.trade ? `Trade: ${me.trade}` : '';
+      window.myTrade = me.trade || null;
       document.getElementById('verif-chip').innerHTML = me.verification_status === 'verified'
         ? '<span class="verified-chip">Verified Artisan</span>'
         : '<span class="pending-chip">Pending Verification</span>';
       
       // Load availability status
       document.getElementById('availability-toggle').checked = me.is_available == 1;
-      document.getElementById('avail-label').textContent = me.is_available ? '🟢 Available for work' : '🔴 Currently busy';
+      document.getElementById('avail-label').textContent = me.is_available ? 'Available for work' : 'Currently busy';
     } catch {}
 
     // Stats
@@ -237,12 +239,11 @@
   }
 
   function openQuote(id, title) {
+    // Simple in-memory modal state  no persistence across tabs
     quoteJobId = id;
-    sessionStorage.setItem('sl_qjid', id);
-    sessionStorage.setItem('sl_qjtitle', title);
     document.getElementById('qm-title').textContent = title;
-    document.getElementById('qm-price').value = sessionStorage.getItem('sl_qprice_' + id) || '';
-    document.getElementById('qm-err').style.display='none';
+    document.getElementById('qm-price').value = '';
+    document.getElementById('qm-err').style.display = 'none';
     document.getElementById('quote-modal').classList.add('open');
   }
   function closeQuote() { document.getElementById('quote-modal').classList.remove('open'); }
@@ -251,12 +252,9 @@
     const price = document.getElementById('qm-price').value;
     const errEl = document.getElementById('qm-err');
     if (!price || +price <= 0) { errEl.textContent='Enter valid amount'; errEl.style.display='block'; return; }
-    sessionStorage.setItem('sl_qprice_' + quoteJobId, price);
     try {
       await api(`/jobs/${quoteJobId}/quote`, 'PUT', { quoted_price: +price });
-      sessionStorage.removeItem('sl_qjid');
-      sessionStorage.removeItem('sl_qjtitle');
-      sessionStorage.removeItem('sl_qprice_' + quoteJobId);
+      // no persisted state to clear
       toast('Quote submitted!', 'success');
       closeQuote(); loadDashboard();
     } catch(e) { errEl.textContent = e.message; errEl.style.display='block'; }
@@ -296,11 +294,44 @@
     const el = document.getElementById('active-jobs-list');
     if (!filteredJobs.length) {
       el.innerHTML = '<div class="empty-state"><p>No jobs in this category</p></div>';
-    } else {
-      el.innerHTML = '<div class="job-list">' + filteredJobs.map(j => 
-        j.status === 'completed' ? renderAwaitingCard(j) : renderJobCard(j)
-      ).join('') + '</div>';
+      return;
     }
+    const total = filteredJobs.length;
+    const totalPages = Math.max(1, Math.ceil(total / myJobsPerPage));
+    myJobsPage = Math.max(1, Math.min(myJobsPage, totalPages));
+    const start = (myJobsPage - 1) * myJobsPerPage;
+    const pageItems = filteredJobs.slice(start, start + myJobsPerPage);
+    el.innerHTML = '<div class="job-list">' + pageItems.map(j =>
+      j.status === 'completed' ? renderAwaitingCard(j) : renderJobCard(j)
+    ).join('') + '</div>';
+    // pagination controls
+    el.innerHTML += `<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;align-items:center">
+      <button class="btn btn-sm" onclick="setMyJobsPage(${myJobsPage - 1})" ${myJobsPage<=1? 'disabled':''}>Prev</button>
+      <div class="page-info">Page ${myJobsPage} of ${totalPages}  ${total} jobs</div>
+      <button class="btn btn-sm" onclick="setMyJobsPage(${myJobsPage + 1})" ${myJobsPage>=totalPages? 'disabled':''}>Next</button>
+    </div>`;
+  }
+
+  function setMyJobsPage(p) { myJobsPage = p; filterJobs(); }
+
+  function filterByMyTrade() {
+    if (!window.allMyJobs) return;
+    if (!window.myTrade) {
+      toast('Your trade is not available yet.', 'warn');
+      return;
+    }
+    myJobsPage = 1;
+    const jobs = window.allMyJobs.filter(j => j.required_skill === window.myTrade);
+    const el = document.getElementById('active-jobs-list');
+    if (!jobs.length) {
+      el.innerHTML = `<div class="empty-state"><p>No jobs matching your trade (${window.myTrade})</p></div>`;
+      return;
+    }
+    // reuse filterJobs rendering by temporarily setting window.allMyJobs
+    const prev = window.allMyJobs;
+    window.allMyJobs = jobs;
+    filterJobs();
+    window.allMyJobs = prev;
   }
 
   async function loadEarningsChart(chartData) {
@@ -330,7 +361,7 @@
           responsive: true,
           maintainAspectRatio: true,
           plugins: { legend: { display: true } },
-          scales: { y: { beginAtZero: true } }
+          scales: { y: { beginAtZero: true, ticks: { callback: (v) => 'KES ' + Number(v).toLocaleString() } } }
         }
       });
     }

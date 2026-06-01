@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SkillLink - My Jobs</title>
+  <link rel="icon" href="/img/favicon.ico" type="image/x-icon">
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body class="app-shell">
@@ -50,6 +51,30 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="payment-modal">
+  <div class="modal-box" style="position:relative;max-width:440px">
+    <button class="modal-close" onclick="document.getElementById('payment-modal').classList.remove('open')">×</button>
+    <div class="modal-title">Confirm Payment</div>
+    <div class="form-group" style="margin-top:16px">
+      <label>Job</label>
+      <div id="payment-job-title" class="form-hint"></div>
+    </div>
+    <div class="form-group">
+      <label>Amount</label>
+      <div id="payment-job-amount" class="form-hint"></div>
+    </div>
+    <div class="form-group">
+      <label>Payment Reference *</label>
+      <input type="text" id="payment-reference" placeholder="e.g. MPESA12345" required>
+    </div>
+    <div id="payment-err" class="form-error" style="display:none"></div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button id="payment-submit" class="btn btn-primary" onclick="submitPayment()">Save Payment Reference</button>
+      <button class="btn btn-outline" onclick="document.getElementById('payment-modal').classList.remove('open')">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="post-modal">
   <div class="modal-box" style="position:relative">
     <button class="modal-close" onclick="document.getElementById('post-modal').classList.remove('open')">×</button>
@@ -73,6 +98,7 @@
           <option>Tiling</option>
           <option>General Repairs</option>
         </select>
+        <div id="j-skill-hint" class="form-hint">Need help selecting a skill? Describe your issue and we’ll suggest one.</div>
       </div>
       <div class="form-group">
         <label>Description *</label>
@@ -89,14 +115,27 @@
         </div>
       </div>
       <div class="form-group">
-        <label><input type="checkbox" id="j-emergency" style="width:auto;margin-right:6px"> 🚨 This is an emergency job (urgent)</label>
+        <label><input type="checkbox" id="j-emergency" style="width:auto;margin-right:6px"> Mark job as urgent</label>
       </div>
       <div class="form-group">
         <label>Location *</label>
-        <input type="text" id="j-loc" placeholder="e.g. Donholm, Nairobi" required style="margin-bottom:6px">
-        <button type="button" class="btn btn-outline btn-sm" onclick="detectJobLocation()">Use current location</button>
+        <select id="j-location-select" onchange="setJobLocationFromPreset()" style="margin-bottom:10px;">
+          <option value="">Choose a nearby area</option>
+          <option value="Donholm" data-lat="-1.298" data-lng="36.862">Donholm</option>
+          <option value="Westlands" data-lat="-1.265" data-lng="36.806">Westlands</option>
+          <option value="Karen" data-lat="-1.302" data-lng="36.738">Karen</option>
+          <option value="CBD" data-lat="-1.283" data-lng="36.816">Nairobi CBD</option>
+          <option value="Gigiri" data-lat="-1.260" data-lng="36.803">Gigiri</option>
+          <option value="Eastlands" data-lat="-1.300" data-lng="36.876">Eastlands</option>
+          <option value="Thika Road" data-lat="-1.249" data-lng="36.876">Thika Road</option>
+        </select>
+        <div class="form-row" style="margin-bottom:10px; gap:10px; align-items:flex-end;">
+          <button type="button" class="btn btn-outline btn-sm" onclick="detectJobLocation()">Use current location</button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="useProfileLocation()">Use profile location</button>
+        </div>
+        <input type="text" id="j-loc" placeholder="Selected address" readonly style="margin-bottom:6px">
         <input type="hidden" id="j-lat"><input type="hidden" id="j-lng">
-        <div id="j-loc-status" class="form-hint" style="margin-top:4px">Coordinates required for map matching.</div>
+        <div id="j-loc-status" class="form-hint" style="margin-top:4px">Select a location or detect it automatically.</div>
       </div>
       <div id="post-err" class="form-error" style="display:none"></div>
       <button type="submit" class="btn btn-primary w-full" id="post-btn">Post Job</button>
@@ -108,6 +147,25 @@
 <script>
   if (!Auth.check('client')) throw '';
   renderNav('client');
+
+  let profileLocation = null;
+  let paymentJobId = null;
+  loadProfileLocation();
+
+  async function loadProfileLocation() {
+    try {
+      const me = await api('/users/me');
+      if (me.location_lat && me.location_lng) {
+        profileLocation = {
+          lat: +me.location_lat,
+          lng: +me.location_lng,
+          name: me.location_name || 'Your profile location'
+        };
+      }
+    } catch (e) {
+      console.warn('Profile location unavailable:', e.message);
+    }
+  }
 
   // FIX #6: highlightJobFromUrl called reliably after every render
   function highlightJobFromUrl() {
@@ -141,6 +199,7 @@
           <button class="btn btn-success btn-sm" onclick="confirmJob(${j.job_id})">Confirm Work Done</button>
           <button class="btn btn-danger btn-sm" onclick="raiseDispute(${j.job_id})">Raise Dispute</button>
         `;
+        if (j.status === 'confirmed' && j.quoted_price && j.payment_status !== 'paid') actions = `<button class="btn btn-primary btn-sm" onclick="openPaymentModal(${j.job_id}, ${j.quoted_price})">Confirm Payment</button>`;
         if (j.status === 'closed' && j.payment_status === 'paid') actions = `<button class="btn btn-primary btn-sm" onclick="openRateModal(${j.job_id})">Rate Artisan</button>`;
         
         let artisanInfo = j.assigned_artisan_id
@@ -156,7 +215,7 @@
             <div class="job-meta">
               <span class="pill pill-blue">${j.required_skill}</span>
               <span class="pill pill-gray">Location: ${j.job_location_name || 'Not set'}</span>
-              ${j.is_emergency ? '<span class="pill pill-red">🚨 URGENT</span>' : ''}
+              ${j.is_emergency ? '<span class="pill pill-red">Urgent</span>' : ''}
               ${j.quoted_price ? `<span class="pill pill-green">Quoted: ${fmtMoney(j.quoted_price)}</span>` : ''}
               ${j.payment_status === 'paid' ? '<span class="pill pill-green">Paid</span>' : ''}
             </div>
@@ -164,6 +223,7 @@
             ${artisanInfo}
             <div class="job-actions">${actions}</div>
             ${j.status === 'completed' ? '<div class="form-hint" style="margin-top:12px">Please confirm within 48 hours or the system will auto-confirm.</div>' : ''}
+            ${j.payment_status==='paid' && j.payment_reference ? `<div class="form-hint" style="margin-top:12px">Payment ref: ${j.payment_reference}</div>` : ''}
           </div>
         `;
       }).join('') + '</div>';
@@ -183,22 +243,89 @@
       document.getElementById('j-lng').value = longitude;
       const name = await reverseGeocode(latitude, longitude);
       document.getElementById('j-loc').value = name;
+      document.getElementById('j-location-select').value = '';
       document.getElementById('j-loc-status').textContent = 'Coordinates captured.';
     } catch {
-      document.getElementById('j-loc-status').textContent = 'Could not detect GPS. Using default Nairobi coordinates.';
-      document.getElementById('j-lat').value = '-1.2921';
-      document.getElementById('j-lng').value = '36.8219';
+      if (profileLocation) {
+        useProfileLocation();
+      } else {
+        document.getElementById('j-loc-status').textContent = 'Could not detect GPS. Please check your browser location permissions.';
+        toast('Unable to detect location. Please enable GPS or use your profile location.', 'warn');
+      }
     }
   }
+
+  function setJobLocationFromPreset() {
+    const select = document.getElementById('j-location-select');
+    const option = select.options[select.selectedIndex];
+    const name = option.value;
+    if (!name) {
+      document.getElementById('j-loc').value = '';
+      document.getElementById('j-lat').value = '';
+      document.getElementById('j-lng').value = '';
+      document.getElementById('j-loc-status').textContent = 'Select a location or detect it automatically.';
+      return;
+    }
+    const lat = option.dataset.lat;
+    const lng = option.dataset.lng;
+    document.getElementById('j-loc').value = `${name}, Nairobi`;
+    document.getElementById('j-lat').value = lat;
+    document.getElementById('j-lng').value = lng;
+    document.getElementById('j-loc-status').textContent = 'Location selected from nearby areas.';
+  }
+
+  function useProfileLocation() {
+    if (!profileLocation) {
+      document.getElementById('j-loc-status').textContent = 'No saved profile location available. Please select or detect location.';
+      toast('No saved profile location is available yet.', 'warn');
+      return;
+    }
+    document.getElementById('j-location-select').value = '';
+    document.getElementById('j-loc').value = profileLocation.name;
+    document.getElementById('j-lat').value = profileLocation.lat;
+    document.getElementById('j-lng').value = profileLocation.lng;
+    document.getElementById('j-loc-status').textContent = 'Using saved profile location.';
+  }
+
+  function suggestJobSkill() {
+    const desc = document.getElementById('j-desc').value.toLowerCase();
+    const skillSelect = document.getElementById('j-skill');
+    if (skillSelect.value) return;
+    const hints = [
+      { keywords: ['leak', 'pipe', 'tap', 'drain', 'bathroom', 'flush', 'water'], skill: 'Plumbing' },
+      { keywords: ['light', 'socket', 'switch', 'electric', 'power', 'cable'], skill: 'Electrical' },
+      { keywords: ['brick', 'cement', 'wall', 'floor', 'masonry'], skill: 'Masonry' },
+      { keywords: ['door', 'wood', 'cabinet', 'woodwork', 'carpentry'], skill: 'Carpentry' },
+      { keywords: ['paint', 'decor', 'wall paint', 'color'], skill: 'Painting' },
+      { keywords: ['weld', 'metal', 'gate', 'iron'], skill: 'Welding' },
+      { keywords: ['tile', 'tiling', 'ceramic'], skill: 'Tiling' }
+    ];
+    const hint = hints.find(h => h.keywords.some(k => desc.includes(k)));
+    const hintEl = document.getElementById('j-skill-hint');
+    if (hint) {
+      hintEl.textContent = `Suggested skill: ${hint.skill}. You can change it if needed.`;
+    } else {
+      hintEl.textContent = 'Need help selecting a skill? Choose the closest category or General Repairs.';
+    }
+  }
+
+  document.getElementById('j-desc').addEventListener('input', suggestJobSkill);
 
   document.getElementById('post-job-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = document.getElementById('post-btn');
     const errEl = document.getElementById('post-err');
     errEl.style.display = 'none';
-    
+
+    if (!document.getElementById('j-lat').value && profileLocation) {
+      document.getElementById('j-lat').value = profileLocation.lat;
+      document.getElementById('j-lng').value = profileLocation.lng;
+      document.getElementById('j-loc').value = profileLocation.name;
+      document.getElementById('j-loc-status').textContent = 'Using your profile location by default.';
+      toast('Using your saved profile location for this job.', 'info');
+    }
     if (!document.getElementById('j-lat').value) {
-      errEl.textContent = 'Please detect location first so artisans can find you on the map.';
+      errEl.textContent = 'Please select or detect a valid location so artisans can find you on the map.';
       errEl.style.display = 'block';
       return;
     }
@@ -234,6 +361,38 @@
       toast('Job deleted', 'info');
       loadJobs();
     } catch (e) { toast(e.message, 'error'); }
+  }
+
+  function openPaymentModal(id, quotedPrice) {
+    paymentJobId = id;
+    document.getElementById('payment-job-title').textContent = `Job #${id}`;
+    document.getElementById('payment-job-amount').textContent = fmtMoney(quotedPrice);
+    document.getElementById('payment-reference').value = '';
+    document.getElementById('payment-err').style.display = 'none';
+    document.getElementById('payment-modal').classList.add('open');
+  }
+
+  async function submitPayment() {
+    const ref = document.getElementById('payment-reference').value.trim();
+    const errEl = document.getElementById('payment-err');
+    if (!ref) {
+      errEl.textContent = 'Enter the payment reference or bank code.';
+      errEl.style.display = 'block';
+      return;
+    }
+    const btn = document.getElementById('payment-submit');
+    btn.disabled = true;
+    try {
+      await api(`/jobs/${paymentJobId}/payment`, 'PUT', { payment_reference: ref });
+      toast('Payment confirmed with reference saved.', 'success');
+      document.getElementById('payment-modal').classList.remove('open');
+      loadJobs();
+    } catch (e) {
+      errEl.textContent = e.message;
+      errEl.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+    }
   }
 
   async function confirmJob(id) {

@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SkillLink – Create Account</title>
+  <link rel="icon" href="/img/favicon.ico" type="image/x-icon">
   <link rel="stylesheet" href="/css/style.css">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -23,17 +24,15 @@
         <div class="role-card" id="role-artisan" onclick="setRole('artisan')" style="cursor:pointer">
           <input type="radio" name="role" value="artisan" style="display:none">
           <div id="rc-artisan" style="text-align:center;padding:14px;border:2px solid #ccc;border-radius:10px;background:#fff;transition:all 0.2s">
-            <div style="font-size:1.6rem">🔧</div>
-            <div style="font-weight:700;margin-top:4px">Artisan</div>
-            <div style="font-size:.75rem;color:#666">Plumber, Electrician etc.</div>
+            <div style="font-size:1.05rem;font-weight:700;color:var(--primary);">Artisan</div>
+            <div style="font-size:.75rem;color:#666;margin-top:6px">Plumber, Electrician, Mason</div>
           </div>
         </div>
         <div class="role-card" id="role-client" onclick="setRole('client')" style="cursor:pointer">
           <input type="radio" name="role" value="client" style="display:none">
           <div id="rc-client" style="text-align:center;padding:14px;border:2px solid #ccc;border-radius:10px;background:#fff;transition:all 0.2s">
-            <div style="font-size:1.6rem">🏠</div>
-            <div style="font-weight:700;margin-top:4px">Client</div>
-            <div style="font-size:.75rem;color:#666">Homeowner or Business</div>
+            <div style="font-size:1.05rem;font-weight:700;color:var(--primary);">Client</div>
+            <div style="font-size:.75rem;color:#666;margin-top:6px">Homeowner, Business, or Property Manager</div>
           </div>
         </div>
       </div>

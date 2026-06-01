@@ -66,6 +66,7 @@ CREATE TABLE jobs (
   budget_min          DECIMAL(10,2) DEFAULT 0,
   budget_max          DECIMAL(10,2) DEFAULT 0,
   quoted_price        DECIMAL(10,2),
+  payment_reference   VARCHAR(255) DEFAULT NULL,
   payment_status      ENUM('unpaid','paid') DEFAULT 'unpaid',
   is_emergency        TINYINT(1) DEFAULT 0,
   status              ENUM('open','assigned','completed','confirmed','closed','disputed') DEFAULT 'open',

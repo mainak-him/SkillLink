@@ -1,12 +1,27 @@
-/* SkillLink – shared client utilities */
+/*
+ * SkillLink – shared client utilities
+ * Purpose: small, framework-free helper library used across the frontend.
+ * - `Auth` handles token/user in localStorage
+ * - `api` and `apiForm` wrap fetch with a simple loader and error handling
+ * - Keep this file minimal and well-commented for a student project
+ */
+/* eslint-disable no-unused-vars */
 const API_BASE = 'http://localhost:3000/api';
 const UPLOAD_BASE = 'http://localhost:3000/uploads';
 
+// Small auth helper (localStorage wrapper). Keep logic explicit for clarity.
 const Auth = {
-  token: ()  => localStorage.getItem('sl_token'),
-  user:  ()  => JSON.parse(localStorage.getItem('sl_user') || 'null'),
-  save:  (token, user) => { localStorage.setItem('sl_token', token); localStorage.setItem('sl_user', JSON.stringify(user)); },
-  clear: ()  => { localStorage.removeItem('sl_token'); localStorage.removeItem('sl_user'); },
+  token: () => localStorage.getItem('sl_token'),
+  user: () => JSON.parse(localStorage.getItem('sl_user') || 'null'),
+  save: (token, user) => {
+    localStorage.setItem('sl_token', token);
+    localStorage.setItem('sl_user', JSON.stringify(user));
+  },
+  clear: () => {
+    localStorage.removeItem('sl_token');
+    localStorage.removeItem('sl_user');
+  },
+  // Simple guard used on pages to redirect unauthorized users.
   check: (requiredRole) => {
     const u = Auth.user();
     if (!u || !Auth.token()) { window.location.href = '/index.html'; return false; }
@@ -20,27 +35,90 @@ const Auth = {
   }
 };
 
+// Create the full-screen overlay loader element on demand.
+function ensureGlobalLoader() {
+  if (document.getElementById('global-api-loader')) return;
+  const overlay = document.createElement('div');
+  overlay.id = 'global-api-loader';
+  overlay.className = 'global-loading-overlay';
+  overlay.innerHTML = '<div class="global-loading-spinner"></div>';
+  document.body.appendChild(overlay);
+}
+
+function ensureGlobalInlineLoader() {
+  if (document.getElementById('global-api-inline')) return;
+  const el = document.createElement('div');
+  el.id = 'global-api-inline';
+  el.className = 'global-api-inline';
+  el.innerHTML = '<div class="spinner inline"></div>';
+  document.body.appendChild(el);
+}
+
+function showGlobalLoader() {
+  ensureGlobalLoader();
+  ensureGlobalInlineLoader();
+  window.__globalApiSpinnerCount = (window.__globalApiSpinnerCount || 0) + 1;
+  // show subtle inline spinner immediately
+  document.getElementById('global-api-inline')?.classList.add('active');
+  // show full-screen overlay only after a short delay to avoid flash
+  if (!window.__globalApiOverlayTimer) {
+    window.__globalApiOverlayTimer = setTimeout(() => {
+      document.getElementById('global-api-loader')?.classList.add('active');
+      window.__globalApiOverlayTimer = null;
+    }, 600);
+  }
+}
+
+function hideGlobalLoader() {
+  window.__globalApiSpinnerCount = Math.max((window.__globalApiSpinnerCount || 1) - 1, 0);
+  if (window.__globalApiSpinnerCount === 0) {
+    // hide inline spinner immediately
+    document.getElementById('global-api-inline')?.classList.remove('active');
+    // hide overlay if visible
+    document.getElementById('global-api-loader')?.classList.remove('active');
+    if (window.__globalApiOverlayTimer) {
+      clearTimeout(window.__globalApiOverlayTimer);
+      window.__globalApiOverlayTimer = null;
+    }
+  }
+}
+
+// Lightweight fetch wrapper used across the app.
+// - Attaches Authorization header
+// - Shows a subtle inline loader first; falls back to full overlay for long requests
+// - Only sets Content-Type when we send a JSON body (GET requests typically don't need it)
 async function api(endpoint, method = 'GET', body = null) {
-  const opts = {
-    method,
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${Auth.token()}` }
-  };
-  if (body) opts.body = JSON.stringify(body);
-  const res  = await fetch(API_BASE + endpoint, opts);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Request failed');
-  return data;
+  const headers = { 'Authorization': `Bearer ${Auth.token()}` };
+  const opts = { method, headers };
+  if (body) {
+    headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  showGlobalLoader();
+  try {
+    const res = await fetch(API_BASE + endpoint, opts);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Request failed');
+    return data;
+  } finally {
+    hideGlobalLoader();
+  }
 }
 
 async function apiForm(endpoint, formData) {
-  const res  = await fetch(API_BASE + endpoint, {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${Auth.token()}` },
-    body: formData
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Upload failed');
-  return data;
+  showGlobalLoader();
+  try {
+    const res  = await fetch(API_BASE + endpoint, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${Auth.token()}` },
+      body: formData
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Upload failed');
+    return data;
+  } finally {
+    hideGlobalLoader();
+  }
 }
 
 function toast(msg, type = 'info', dur = 3500) {
@@ -165,6 +243,8 @@ function renderNav(role) {
     : user?.role === 'artisan'
       ? '/artisan/profile.html'
       : '/client/profile.html';
+  const roleLabel = user?.role === 'admin' ? 'Admin' : user?.role === 'artisan' ? 'Artisan' : 'Client';
+  const userName = user?.name ? user.name.split(' ')[0] : 'User';
   const links = user?.role === 'artisan'
     ? `<a href="/artisan/dashboard.html">Dashboard</a>
        <a href="/artisan/jobs.html">Jobs</a>
@@ -175,56 +255,77 @@ function renderNav(role) {
          <a href="/client/artisans.html">Find Artisans</a>`
       : `<a href="/admin/dashboard.html">Dashboard</a>`;
 
-  document.getElementById('nav-container').innerHTML = `
-    <nav class="topnav">
-      <div class="nav-brand">Skill<span>Link</span></div>
-      <div class="nav-links">${links}</div>
-      <div class="nav-right">
-        <button class="notif-btn" id="notif-btn" title="Alerts">
-          🔔 <span class="badge" id="notif-badge"></span>
-        </button>
-        <div style="position: relative; display: inline-block;">
-          <img src="${pic}" class="avatar-nav" id="nav-avatar"
-               onerror="this.src='/img/default.png'"
-               title="Profile" />
-          <div id="profile-menu" style="display: none; position: absolute; right: 0; top: 45px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); width: 170px; z-index: 300;">
-            <a href="${profileLink}" style="display: block; padding: 10px; color: var(--text); border-bottom: 1px solid var(--border); text-decoration: none;">My Profile</a>
-            <button id="logout-btn" style="display: block; width: 100%; text-align: left; padding: 10px; background: none; border: none; cursor: pointer; color: var(--danger); font-weight: 700;">Logout</button>
-          </div>
-        </div>
-      </div>
-    </nav>
+  const showNotifs = user?.role !== 'admin';
+  const notifHtml = showNotifs ? `
+    <button class="notif-btn" id="notif-btn" title="Messages">
+      <span class="notif-icon"></span>Messages <span class="badge" id="notif-badge"></span>
+    </button>
     <div class="notif-dropdown" id="notif-dropdown">
       <div class="notif-header">
         Notifications
         <button class="btn btn-sm btn-outline" onclick="markAllRead()">Mark all read</button>
       </div>
-      <div id="notif-list"><div class="notif-empty">Loading...</div></div>
-    </div>`;
+      <div class="notif-filter" id="notif-filter"></div>
+      <div class="notif-list-container" id="notif-list"><div class="notif-empty">Loading...</div></div>
+    </div>` : '';
 
-  // Active link
+  document.getElementById('nav-container').innerHTML = `
+    <nav class="topnav">
+      <div>
+        <div class="nav-brand">Skill<span>Link</span></div>
+        <div class="nav-meta">
+          <div class="nav-user-name">Hi, ${userName}</div>
+          <div class="role-badge">${roleLabel}</div>
+        </div>
+      </div>
+      <div class="nav-links">${links}</div>
+      <div class="nav-right">
+        ${notifHtml}
+        <div style="position: relative; display: inline-block;">
+          <img src="${pic}" class="avatar-nav" id="nav-avatar"
+               onerror="this.src='/img/default.png'"
+               title="Profile" />
+          <div id="profile-menu" style="display: none; position: absolute; right: 0; top: 48px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); width: 190px; z-index: 300;">
+            <a href="${profileLink}" id="profile-link" style="display: block; padding: 12px; color: var(--text); border-bottom: 1px solid var(--border); text-decoration: none;">My Profile</a>
+            <button id="logout-btn" style="display: block; width: 100%; text-align: left; padding: 12px; background: none; border: none; cursor: pointer; color: var(--danger); font-weight: 700;">Logout</button>
+          </div>
+        </div>
+      </div>
+    </nav>`;
+
   const path = window.location.pathname;
   document.querySelectorAll('.nav-links a').forEach(a => {
     if (path.endsWith(a.getAttribute('href').split('/').pop())) a.classList.add('active');
   });
 
-  if (!window.__renderNavInit) {
+    if (!window.__renderNavInit) {
     window.__renderNavInit = true;
     const notifBtn = document.getElementById('notif-btn');
     const avatar = document.getElementById('nav-avatar');
     const profileMenu = document.getElementById('profile-menu');
+    const profileLinkEl = document.getElementById('profile-link');
     const logoutBtn = document.getElementById('logout-btn');
     const notifDropdown = document.getElementById('notif-dropdown');
 
-    notifBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      notifDropdown.classList.toggle('open');
-      if (notifDropdown.classList.contains('open')) loadNotifications();
-    });
+    if (notifBtn && notifDropdown) {
+      notifBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        profileMenu.style.display = 'none';
+        notifDropdown.classList.toggle('open');
+        if (notifDropdown.classList.contains('open')) loadNotifications();
+      });
+      notifDropdown.addEventListener('click', e => e.stopPropagation());
+    }
 
     avatar.addEventListener('click', (e) => {
       e.stopPropagation();
+      notifDropdown?.classList.remove('open');
       profileMenu.style.display = profileMenu.style.display === 'block' ? 'none' : 'block';
+    });
+
+    profileLinkEl.addEventListener('click', () => {
+      notifDropdown?.classList.remove('open');
+      profileMenu.style.display = 'none';
     });
 
     profileMenu.addEventListener('click', (e) => e.stopPropagation());
@@ -235,15 +336,15 @@ function renderNav(role) {
     });
 
     document.addEventListener('click', () => {
-      notifDropdown.classList.remove('open');
+      notifDropdown?.classList.remove('open');
       profileMenu.style.display = 'none';
     });
-
-    notifDropdown.addEventListener('click', e => e.stopPropagation());
   }
 
-  pollNotifCount();
-  setInterval(pollNotifCount, 30000);
+  if (showNotifs) {
+    pollNotifCount();
+    setInterval(pollNotifCount, 30000);
+  }
 }
 
 // FIX #8: pollNotifCount with explicit console.warn and fallback
@@ -258,22 +359,60 @@ async function pollNotifCount() {
 }
 
 // FIX #8: loadNotifications with console.warn and proper fallback message
+let currentNotifFilter = 'all';
+
+function renderNotificationFilter() {
+  const filterRoot = document.getElementById('notif-filter');
+  if (!filterRoot) return;
+  const types = [
+    { key: 'all', label: 'All' },
+    { key: 'job_quoted', label: 'Quotes' },
+    { key: 'job_completed', label: 'Completed' },
+    { key: 'job_confirmed', label: 'Confirmed' },
+    { key: 'payment_received', label: 'Payment' },
+    // 'admin_warning' intentionally omitted: admin-only warnings not supported in UI
+  ];
+  filterRoot.innerHTML = types.map(t => `
+    <button type="button" class="${currentNotifFilter===t.key?'active':''}" onclick="setNotifFilter('${t.key}')">${t.label}</button>
+  `).join('');
+}
+
+function setNotifFilter(filter) {
+  currentNotifFilter = filter;
+  loadNotifications();
+}
+
 async function loadNotifications() {
   const list = document.getElementById('notif-list');
   try {
     const { notifications, unread } = await api('/notifications');
     const badge = document.getElementById('notif-badge');
     if (badge) { badge.textContent = unread; badge.classList.toggle('show', unread > 0); }
-    if (!notifications || !notifications.length) {
-      list.innerHTML = '<div class="notif-empty">No notifications yet.</div>';
+    renderNotificationFilter();
+
+    const filtered = notifications.filter(n => currentNotifFilter === 'all' || n.type === currentNotifFilter);
+    if (!filtered.length) {
+      list.innerHTML = '<div class="notif-empty">No notifications match this filter.</div>';
       return;
     }
-    list.innerHTML = notifications.map(n => `
+    list.innerHTML = filtered.map(n => {
+      const meta = notificationTypeMeta(n.type);
+      const title = n.job_title ? `Job: ${n.job_title}` : meta.title;
+      const actor = meta.actor || '';
+      const detail = notificationDetailText(n);
+      return `
       <div class="notif-item ${n.is_read ? '' : 'unread'}" onclick="handleNotificationClick(${n.notification_id}, ${n.related_job_id})">
-        ${n.message}
-        <div class="notif-time">${timeAgo(n.created_at)}</div>
-      </div>
-    `).join('');
+        <div class="notif-head">
+          <span class="notif-label ${meta.color}">${meta.label}</span>
+          <span class="notif-time">${timeAgo(n.created_at)}</span>
+        </div>
+        <div class="notif-body">
+          ${actor ? `<div class="notif-line"><span class="notif-meta">${actor}</span><span>${meta.action || ''}</span></div>` : ''}
+          ${title ? `<div class="notif-line"><span class="notif-meta">Job</span><span>${n.job_title || 'Details available'}</span></div>` : ''}
+          <div class="notif-line"><span class="notif-meta">What</span><span>${detail}</span></div>
+        </div>
+      </div>`;
+    }).join('');
   } catch (e) {
     console.warn('Failed to load notifications:', e.message);
     if (list) list.innerHTML = '<div class="notif-empty">Unable to load notifications.</div>';
@@ -289,6 +428,26 @@ async function markAllRead() {
   }
 }
 
+function notificationTypeMeta(type) {
+  const types = {
+    job_quoted:    { label: 'Quote', color: 'pill-orange', actor: 'Artisan', action: 'Quoted a price' },
+    job_completed: { label: 'Completed', color: 'pill-purple', actor: 'Artisan', action: 'Marked work done' },
+    job_confirmed: { label: 'Confirmed', color: 'pill-blue', actor: 'Client', action: 'Confirmed completion' },
+    payment_received: { label: 'Payment', color: 'pill-green', actor: 'Payment', action: 'Recorded' },
+    job_accepted:  { label: 'Accepted', color: 'pill-blue', actor: 'Client', action: 'Accepted your bid' },
+    job_disputed:  { label: 'Dispute', color: 'pill-red', actor: 'Client', action: 'Raised a dispute' }
+  };
+  return types[type] || { label: 'Update', color: 'pill-gray', actor: '', action: 'New activity' };
+}
+
+function notificationDetailText(n) {
+  const summary = n.message || '';
+  const priceMatch = summary.match(/KES\s?[\d,]+/);
+  if (priceMatch) return priceMatch[0];
+  if (n.type === 'admin_warning') return summary;
+  return summary.length <= 60 ? summary : summary.slice(0, 56) + '...';
+}
+
 // FIX #5: close dropdown BEFORE redirect
 async function handleNotificationClick(notifId, jobId) {
   if (!jobId) return;
@@ -300,8 +459,10 @@ async function handleNotificationClick(notifId, jobId) {
   } catch (e) { console.warn('Mark read failed:', e.message); }
   // Redirect
   const user = Auth.user();
-  const jobPage = user.role === 'artisan' ? '/artisan/jobs.html' : '/client/jobs.html';
-  window.location.href = `${jobPage}?job=${jobId}`;
+  let jobPage = '/client/jobs.html';
+  if (user.role === 'artisan') jobPage = '/artisan/jobs.html';
+  if (user.role === 'admin') jobPage = '/admin/dashboard.html';
+  window.location.href = `${jobPage}${jobPage.includes('dashboard') ? '' : `?job=${jobId}`}`;
 }
 
 function getCurrentPosition() {
