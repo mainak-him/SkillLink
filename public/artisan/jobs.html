@@ -62,7 +62,8 @@
         <option>Carpentry</option><option>Painting</option><option>Welding</option>
         <option>Tiling</option><option>General Repairs</option>
       </select>
-      <button class="btn btn-outline btn-sm" onclick="loadJobs()">Refresh</button>
+      <button id="filter-by-trade" class="btn btn-outline btn-sm" onclick="filterByMyTrade()">My trade</button>
+      <button id="refresh-btn" class="btn btn-outline btn-sm" onclick="loadJobs()">Refresh</button>
       <span id="job-count" class="text-sm text-muted"></span>
     </div>
 
@@ -188,6 +189,8 @@
     try {
       const me = await api('/users/me');
       userIsAvailable = me.is_available ? 1 : 0;
+      // store trade for quick filters on this page
+      window.userTrade = me.trade || null;
     } catch (e) { console.error('Could not load availability status:', e); }
     try {
       const pos = await getCurrentPosition();
@@ -230,7 +233,12 @@
   async function loadJobs() {
     const skill = document.getElementById('filter-skill').value;
     const el    = document.getElementById('jobs-list');
+    const refreshBtn = document.getElementById('refresh-btn');
+    // save original text so we can restore after a quick visual spinner
+    if (refreshBtn && !refreshBtn.dataset.orig) refreshBtn.dataset.orig = refreshBtn.innerHTML;
+    if (refreshBtn) { refreshBtn.disabled = true; refreshBtn.innerHTML = '<span class="spinner inline"></span> Refreshing'; }
     el.innerHTML = '<div class="text-muted text-sm">Loading…</div>';
+    const started = Date.now();
     try {
       allJobs = await api(`/jobs?skill=${skill}&lat=${myLat}&lng=${myLng}`);
       document.getElementById('job-count').textContent = `${allJobs.length} job${allJobs.length!==1?'s':''} found`;
@@ -239,6 +247,25 @@
       if (leafMap) refreshMapMarkers();
       highlightJobFromUrl();
     } catch(e) { el.innerHTML=`<div class="form-error">${e.message}</div>`; }
+    finally {
+      const elapsed = Date.now() - started; const min = 220; const wait = elapsed < min ? min - elapsed : 0;
+      setTimeout(() => { if (refreshBtn) { refreshBtn.disabled = false; refreshBtn.innerHTML = refreshBtn.dataset.orig || 'Refresh'; } }, wait);
+    }
+  }
+
+  // Move the "filter by my trade" behavior here (dashboard no longer has this button)
+  function filterByMyTrade() {
+    const sel = document.getElementById('filter-skill');
+    if (!window.userTrade) { toast('Your trade is not set on your profile.', 'warn'); return; }
+    // if the trade isn't in the list, just set to 'all' and inform
+    const opts = Array.from(sel.options).map(o => o.value || o.text);
+    if (!opts.includes(window.userTrade)) {
+      sel.value = 'all';
+      toast(`No exact match for '${window.userTrade}' in filters; showing all.`, 'info');
+    } else {
+      sel.value = window.userTrade;
+    }
+    loadJobs();
   }
 
   async function loadMyJobs() {

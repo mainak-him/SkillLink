@@ -71,7 +71,6 @@
           <option value="awaiting">Awaiting Confirmation</option>
           <option value="all">All Jobs</option>
         </select>
-        <button class="btn btn-outline btn-sm" onclick="filterByMyTrade()">Filter by my trade</button>
         <a href="/artisan/jobs.html" class="btn btn-outline btn-sm">Browse jobs</a>
       </div>
     </div>
@@ -313,26 +312,6 @@
   }
 
   function setMyJobsPage(p) { myJobsPage = p; filterJobs(); }
-
-  function filterByMyTrade() {
-    if (!window.allMyJobs) return;
-    if (!window.myTrade) {
-      toast('Your trade is not available yet.', 'warn');
-      return;
-    }
-    myJobsPage = 1;
-    const jobs = window.allMyJobs.filter(j => j.required_skill === window.myTrade);
-    const el = document.getElementById('active-jobs-list');
-    if (!jobs.length) {
-      el.innerHTML = `<div class="empty-state"><p>No jobs matching your trade (${window.myTrade})</p></div>`;
-      return;
-    }
-    // reuse filterJobs rendering by temporarily setting window.allMyJobs
-    const prev = window.allMyJobs;
-    window.allMyJobs = jobs;
-    filterJobs();
-    window.allMyJobs = prev;
-  }
 
   async function loadEarningsChart(chartData) {
     if (chartsRendered.earnings) return;

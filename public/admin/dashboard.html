@@ -115,6 +115,36 @@
     </div>
     <div class="table-pagination" id="admin-users-pagination"></div>
   </div>
+    <!-- Disputed jobs management -->
+  <div class="card mt-4">
+    <div class="section-head">
+      <div>
+        <div class="section-title">Disputed jobs</div>
+        <p class="text-sm text-muted">Review client complaints and artisan concerns. Resolve disputes in favour of either party.</p>
+      </div>
+      <div>
+        <button class="btn btn-outline btn-sm" onclick="loadDisputedJobs()">Refresh</button>
+      </div>
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>Job title</th>
+            <th>Client</th>
+            <th>Artisan</th>
+            <th>Budget</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="disputed-jobs-body">
+          <tr><td colspan="6" class="text-center text-muted">Loading disputed jobs...</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="table-pagination" id="disputed-jobs-pagination"></div>
+  </div>
 
   <div class="admin-grid mt-4">
     <div class="card">
@@ -246,7 +276,8 @@
         loadJobActivity(),
         loadAdminJobs(),
         loadAdminUsers(),
-        loadAuditLog()
+        loadAuditLog(),
+        loadDisputedJobs()
       ]);
       updateLastRefreshTime();
     } catch (e) {
@@ -371,7 +402,147 @@
       toast(e.message, 'error');
     }
   }
+    // Disputed jobs management
+  let disputedJobsData = [];
+  let disputedJobsPage = 1;
+  const disputedJobsPerPage = 10;
 
+  async function loadDisputedJobs() {
+    try {
+      const jobs = await api('/admin/disputes');
+      disputedJobsData = jobs || [];
+      disputedJobsPage = 1;
+      renderDisputedJobsPage(disputedJobsPage);
+    } catch (e) {
+      document.getElementById('disputed-jobs-body').innerHTML = `<tr><td colspan="6" class="text-center form-error">${e.message}</td></tr>`;
+      document.getElementById('disputed-jobs-pagination').innerHTML = '';
+    }
+  }
+
+  function renderDisputedJobsPage(page) {
+    const tbody = document.getElementById('disputed-jobs-body');
+    const pagRoot = document.getElementById('disputed-jobs-pagination');
+    if (!disputedJobsData || !disputedJobsData.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No disputed jobs at this time.</td></tr>';
+      pagRoot.innerHTML = '';
+      return;
+    }
+    const total = disputedJobsData.length;
+    const totalPages = Math.max(1, Math.ceil(total / disputedJobsPerPage));
+    page = Math.max(1, Math.min(page, totalPages));
+    disputedJobsPage = page;
+    const start = (page - 1) * disputedJobsPerPage;
+    const pageItems = disputedJobsData.slice(start, start + disputedJobsPerPage);
+    tbody.innerHTML = pageItems.map(job => `
+      <tr>
+        <td><strong>${job.job_title}</strong><br><span class="text-sm text-muted">${job.required_skill}</span></td>
+        <td>${job.client_name || 'N/A'}</td>
+        <td>${job.artisan_name || 'Unassigned'}</td>
+        <td>${fmtMoney(job.quoted_price || job.budget_max)}</td>
+        <td>${statusPill(job.status)}</td>
+        <td class="action-btns">
+          <button class="btn btn-primary btn-sm" onclick="showResolveDisputeModal(${job.job_id}, '${job.job_title.replace(/'/g, "\\'")}')">Resolve</button>
+        </td>
+      </tr>
+    `).join('');
+
+    pagRoot.innerHTML = `
+      <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;">
+        <button class="btn btn-sm" onclick="renderDisputedJobsPage(${page - 1})" ${page <= 1 ? 'disabled' : ''}>Prev</button>
+        <div class="page-info">Page ${page} of ${totalPages} (${total} disputed)</div>
+        <button class="btn btn-sm" onclick="renderDisputedJobsPage(${page + 1})" ${page >= totalPages ? 'disabled' : ''}>Next</button>
+      </div>`;
+  }
+async function showResolveDisputeModal(jobId, jobTitle) {
+  // Fetch job details (to get client's original description as complaint)
+  let jobDetails = null;
+  try {
+    jobDetails = await api(`/jobs/${jobId}`);
+  } catch (e) {
+    console.warn('Could not fetch job details:', e);
+  }
+
+  // Fetch all dispute responses for this job (from dispute_responses table)
+  let messages = [];
+  try {
+    const responses = await api(`/jobs/${jobId}/concerns`);
+    messages = responses || [];
+  } catch (e) {
+    console.warn('Could not fetch dispute responses:', e);
+  }
+
+  // Build HTML for messages
+  let messagesHtml = '';
+  if (messages.length === 0) {
+    messagesHtml = '<p class="text-muted">No additional messages from either party.</p>';
+  } else {
+    messagesHtml = '<ul style="margin:0; padding-left:1.2rem;">';
+    for (const msg of messages) {
+      const roleLabel = (msg.responder_id === jobDetails?.client_id) ? 'Client' : 'Artisan';
+      messagesHtml += `<li><strong>${roleLabel}:</strong> ${escapeHtml(msg.message)}</li>`;
+    }
+    messagesHtml += '</ul>';
+  }
+
+  const modalHtml = `
+    <div id="resolve-modal" class="modal-overlay" style="display:flex;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);justify-content:center;align-items:center;z-index:1000;">
+      <div class="modal-content" style="background:white;padding:24px;border-radius:12px;max-width:550px;width:90%; max-height:80vh; overflow-y:auto;">
+        <h3>Resolve dispute</h3>
+        <p><strong>Job:</strong> ${escapeHtml(jobTitle)}</p>
+
+        <div style="margin:12px 0;padding:12px;background:#f8f9fa;border-radius:8px;">
+          <strong>Original job description:</strong>
+          <p style="margin:8px 0 0 0;font-size:0.9rem;">${escapeHtml(jobDetails ? jobDetails.job_description : 'No description available.')}</p>
+        </div>
+
+        <div style="margin:12px 0;padding:12px;background:#fff3e0;border-radius:8px;">
+          <strong>Message from disputing prty:</strong>
+          ${messagesHtml}
+        </div>
+
+        <p>Choose who to favour:</p>
+        <div style="display:flex;gap:12px;margin:20px 0;">
+          <button id="resolve-client" class="btn btn-primary">Favour client</button>
+          <button id="resolve-artisan" class="btn btn-primary" style="background:#2E7D64;">Favour artisan</button>
+          <button id="close-resolve-modal" class="btn btn-outline">Cancel</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+  const modal = document.getElementById('resolve-modal');
+  document.getElementById('resolve-client').onclick = () => resolveDispute(jobId, 'client');
+  document.getElementById('resolve-artisan').onclick = () => resolveDispute(jobId, 'artisan');
+  document.getElementById('close-resolve-modal').onclick = () => modal.remove();
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+}
+
+// Helper to escape HTML
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/[&<>]/g, function(m) {
+    if (m === '&') return '&amp;';
+    if (m === '<') return '&lt;';
+    if (m === '>') return '&gt;';
+    return m;
+  });
+}
+  async function resolveDispute(jobId, favor) {
+    try {
+      await api(`/admin/jobs/${jobId}/resolve`, 'PUT', { favor });
+      toast(`Dispute resolved in favour of ${favor}.`, 'success');
+      // Remove modal if present
+      const modal = document.getElementById('resolve-modal');
+      if (modal) modal.remove();
+      // Refresh disputed list and audit log
+      await loadDisputedJobs();
+      await loadAuditLog();
+      await loadAdminData(); // refresh stats too
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  }
   // Initialize dashboard
   loadAdminData();
 

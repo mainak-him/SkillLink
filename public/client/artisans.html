@@ -43,7 +43,7 @@
       <option>Tiling</option>
       <option>General Repairs</option>
     </select>
-    <button class="btn btn-outline btn-sm" onclick="loadArtisans()">Refresh</button>
+    <button id="refresh-artisans-btn" class="btn btn-outline btn-sm" onclick="loadArtisans()">Refresh</button>
   </div>
   <div class="distance-note">Artisans are sorted by distance to your location. Distance calculations may take a few seconds.</div>
 
@@ -103,9 +103,12 @@
 
   async function loadArtisans() {
     const skill = document.getElementById('filter-skill').value;
+    const refreshBtn = document.getElementById('refresh-artisans-btn');
+    if (refreshBtn && !refreshBtn.dataset.orig) refreshBtn.dataset.orig = refreshBtn.innerHTML;
+    if (refreshBtn) { refreshBtn.disabled = true; refreshBtn.innerHTML = '<span class="spinner inline"></span> Refreshing'; }
     const el = document.getElementById('artisans-list');
     el.innerHTML = '<div class="text-muted">Finding nearby verified artisans using GPS distances...</div>';
-    
+    const started = Date.now();
     try {
       allArtisans = await api(`/artisans?skill=${skill}&lat=${myLat}&lng=${myLng}`);
       if (!allArtisans.length) {
@@ -130,6 +133,13 @@
       if (leafMap) refreshMapMarkers();
     } catch (e) {
       el.innerHTML = `<div class="form-error">${e.message}</div>`;
+    } finally {
+      const elapsed = Date.now() - started;
+      const min = 220;
+      const wait = elapsed < min ? min - elapsed : 0;
+      setTimeout(() => {
+        if (refreshBtn) { refreshBtn.disabled = false; refreshBtn.innerHTML = refreshBtn.dataset.orig || 'Refresh'; }
+      }, wait);
     }
   }
 
