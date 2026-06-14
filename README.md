@@ -206,4 +206,4 @@ This is a student project. Feel free to use it for learning or as a reference fo
 
 ## Author
 
-Built by Maina Kamau (SCS3/2100/2024), University of Nairobi.
+Built by Maina Kamau, for my 2nd year project at the University of Nairobi.
