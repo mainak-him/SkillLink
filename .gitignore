@@ -13,7 +13,15 @@ yarn.lock
 
 # Markdown files: ignore all, but keep `personal_summary.md` only
 *.md
-!personal_summary.md
+!README.md
 
 # Keep tests local (untracked)
 tests/
+
+#exam panel files
+exam_seed.js
+uploads
+
+
+#node modules
+node_modules
